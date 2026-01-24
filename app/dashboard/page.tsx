@@ -10,6 +10,7 @@ import { RoleBadge } from '@/components/Badge'
 export default function DashboardPage() {
   const router = useRouter()
   const [user, setUser] = useState<{ id: string; email: string } | null>(null)
+  const [accessToken, setAccessToken] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [connection, setConnection] = useState<UserConnection | null>(null)
 
@@ -36,20 +37,21 @@ export default function DashboardPage() {
     async function init() {
       try {
         const supabase = createSupabaseClient()
-        const { data: { user } } = await supabase.auth.getUser()
+        const { data: { session } } = await supabase.auth.getSession()
 
-        if (!user) {
+        if (!session?.user) {
           router.push('/login')
           return
         }
 
-        setUser({ id: user.id, email: user.email || '' })
+        setUser({ id: session.user.id, email: session.user.email || '' })
+        setAccessToken(session.access_token)
 
         // Load user's connection
         const { data: connections } = await supabase
           .from('user_connections')
           .select('*')
-          .eq('user_id', user.id)
+          .eq('user_id', session.user.id)
           .single()
 
         if (connections) {
@@ -69,7 +71,7 @@ export default function DashboardPage() {
   // Load customer data when connection exists
   useEffect(() => {
     async function loadData() {
-      if (!connection) return
+      if (!connection || !accessToken) return
 
       setDataLoading(true)
       setDataError('')
@@ -78,7 +80,10 @@ export default function DashboardPage() {
         // Decrypt the key and create customer client
         const response = await fetch('/api/decrypt', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${accessToken}`,
+          },
           body: JSON.stringify({ encrypted: connection.encrypted_key }),
         })
 
@@ -103,7 +108,7 @@ export default function DashboardPage() {
     }
 
     loadData()
-  }, [connection])
+  }, [connection, accessToken])
 
   // Handle connect form submission
   const handleConnect = async (e: React.FormEvent) => {
@@ -115,7 +120,10 @@ export default function DashboardPage() {
       // Send credentials to API (connection test happens server-side)
       const response = await fetch('/api/connect', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${accessToken}`,
+        },
         body: JSON.stringify({
           supabaseUrl,
           serviceKey,
@@ -149,7 +157,12 @@ export default function DashboardPage() {
     }
 
     try {
-      const response = await fetch('/api/disconnect', { method: 'POST' })
+      const response = await fetch('/api/disconnect', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+        },
+      })
       if (!response.ok) {
         throw new Error('Failed to disconnect')
       }

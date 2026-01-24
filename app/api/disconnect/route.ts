@@ -1,8 +1,7 @@
-import { NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
-import { cookies } from 'next/headers'
 
-export async function POST() {
+export async function POST(request: NextRequest) {
   try {
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
     const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
@@ -12,25 +11,16 @@ export async function POST() {
       return NextResponse.json({ error: 'Server configuration error' }, { status: 500 })
     }
 
-    // Get cookies for auth
-    const cookieStore = await cookies()
-    const allCookies = cookieStore.getAll()
-    const cookieString = allCookies.map(c => `${c.name}=${c.value}`).join('; ')
+    // Get access token from Authorization header
+    const authHeader = request.headers.get('authorization')
+    if (!authHeader?.startsWith('Bearer ')) {
+      return NextResponse.json({ error: 'Missing authorization token' }, { status: 401 })
+    }
+    const token = authHeader.substring(7)
 
-    // Create Supabase client with cookies
-    const supabase = createClient(supabaseUrl, supabaseAnonKey, {
-      auth: {
-        persistSession: false,
-      },
-      global: {
-        headers: {
-          cookie: cookieString,
-        },
-      },
-    })
-
-    // Get the current user
-    const { data: { user }, error: authError } = await supabase.auth.getUser()
+    // Create Supabase client and verify the user
+    const supabase = createClient(supabaseUrl, supabaseAnonKey)
+    const { data: { user }, error: authError } = await supabase.auth.getUser(token)
 
     if (authError || !user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
