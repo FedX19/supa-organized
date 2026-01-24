@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { cookies } from 'next/headers'
 import { encrypt } from '@/lib/encryption'
 
 export async function POST(request: NextRequest) {
@@ -10,71 +11,83 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Missing required fields' }, { status: 400 })
     }
 
-    // Get current user from cookie/session
-    const supabaseUrl_own = process.env.NEXT_PUBLIC_SUPABASE_URL
-    const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-    const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+    // Get environment variables
+    const ownSupabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+    const ownAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+    const ownServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY
 
-    if (!supabaseUrl_own || !supabaseAnonKey || !serviceRoleKey) {
+    if (!ownSupabaseUrl || !ownAnonKey || !ownServiceRoleKey) {
       return NextResponse.json({ error: 'Server configuration error' }, { status: 500 })
     }
 
-    // Create client with anon key to get user from cookie
-    const supabaseAnon = createClient(supabaseUrl_own, supabaseAnonKey, {
+    // Get cookies for auth
+    const cookieStore = await cookies()
+    const allCookies = cookieStore.getAll()
+    const cookieString = allCookies.map(c => `${c.name}=${c.value}`).join('; ')
+
+    // Create Supabase client with cookies
+    const supabase = createClient(ownSupabaseUrl, ownAnonKey, {
       auth: {
         persistSession: false,
       },
       global: {
         headers: {
-          Authorization: request.headers.get('authorization') || '',
-          cookie: request.headers.get('cookie') || '',
+          cookie: cookieString,
         },
       },
     })
 
-    // Get user from the auth header/cookie
-    const authHeader = request.headers.get('authorization')
-    let userId: string | null = null
+    // Get the current user
+    const { data: { user }, error: authError } = await supabase.auth.getUser()
 
-    if (authHeader?.startsWith('Bearer ')) {
-      const token = authHeader.substring(7)
-      const { data: { user } } = await supabaseAnon.auth.getUser(token)
-      userId = user?.id || null
+    if (authError || !user) {
+      return NextResponse.json({ error: 'Unauthorized - Please log in again' }, { status: 401 })
     }
 
-    if (!userId) {
-      // Try to get user from cookie
-      const cookieHeader = request.headers.get('cookie') || ''
-      const supabaseCookie = cookieHeader.split(';').find(c => c.trim().startsWith('sb-'))
+    // Test connection to customer's Supabase (server-side)
+    try {
+      const customerClient = createClient(supabaseUrl, serviceKey, {
+        auth: {
+          persistSession: false,
+          autoRefreshToken: false,
+        },
+      })
 
-      if (supabaseCookie) {
-        // Parse the auth token from cookie
-        const { data: { user } } = await supabaseAnon.auth.getUser()
-        userId = user?.id || null
+      // Try to query profiles table to verify connection
+      const { error: testError } = await customerClient.from('profiles').select('id').limit(1)
+
+      if (testError) {
+        console.error('Customer connection test failed:', testError)
+        return NextResponse.json(
+          { error: `Connection test failed: ${testError.message}` },
+          { status: 400 }
+        )
       }
-    }
-
-    if (!userId) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    } catch (testErr) {
+      console.error('Customer connection error:', testErr)
+      return NextResponse.json(
+        { error: 'Could not connect to your Supabase. Please verify your URL and service role key.' },
+        { status: 400 }
+      )
     }
 
     // Encrypt the service key
     const encryptedKey = encrypt(serviceKey)
 
     // Use service role client to bypass RLS for insert
-    const supabaseAdmin = createClient(supabaseUrl_own, serviceRoleKey)
+    const supabaseAdmin = createClient(ownSupabaseUrl, ownServiceRoleKey)
 
     // Delete existing connection if any
     await supabaseAdmin
       .from('user_connections')
       .delete()
-      .eq('user_id', userId)
+      .eq('user_id', user.id)
 
     // Insert new connection
     const { data: connection, error } = await supabaseAdmin
       .from('user_connections')
       .insert({
-        user_id: userId,
+        user_id: user.id,
         supabase_url: supabaseUrl,
         encrypted_key: encryptedKey,
         connection_name: connectionName || 'My Supabase',

@@ -1,7 +1,8 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { cookies } from 'next/headers'
 
-export async function POST(request: NextRequest) {
+export async function POST() {
   try {
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
     const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
@@ -11,29 +12,27 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Server configuration error' }, { status: 500 })
     }
 
-    // Create client to get user
-    const supabaseAnon = createClient(supabaseUrl, supabaseAnonKey, {
+    // Get cookies for auth
+    const cookieStore = await cookies()
+    const allCookies = cookieStore.getAll()
+    const cookieString = allCookies.map(c => `${c.name}=${c.value}`).join('; ')
+
+    // Create Supabase client with cookies
+    const supabase = createClient(supabaseUrl, supabaseAnonKey, {
       auth: {
         persistSession: false,
       },
+      global: {
+        headers: {
+          cookie: cookieString,
+        },
+      },
     })
 
-    // Get user from auth header
-    const authHeader = request.headers.get('authorization')
-    let userId: string | null = null
+    // Get the current user
+    const { data: { user }, error: authError } = await supabase.auth.getUser()
 
-    if (authHeader?.startsWith('Bearer ')) {
-      const token = authHeader.substring(7)
-      const { data: { user } } = await supabaseAnon.auth.getUser(token)
-      userId = user?.id || null
-    }
-
-    if (!userId) {
-      const { data: { user } } = await supabaseAnon.auth.getUser()
-      userId = user?.id || null
-    }
-
-    if (!userId) {
+    if (authError || !user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
@@ -43,7 +42,7 @@ export async function POST(request: NextRequest) {
     const { error } = await supabaseAdmin
       .from('user_connections')
       .delete()
-      .eq('user_id', userId)
+      .eq('user_id', user.id)
 
     if (error) {
       console.error('Delete error:', error)

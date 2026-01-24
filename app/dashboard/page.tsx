@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
-import { createSupabaseClient, createCustomerSupabaseClient, fetchCustomerData, testCustomerConnection, UserRow, UserConnection } from '@/lib/supabase'
+import { createSupabaseClient, createCustomerSupabaseClient, fetchCustomerData, UserRow, UserConnection } from '@/lib/supabase'
 import { Sidebar } from '@/components/Sidebar'
 import { StatCard } from '@/components/StatCard'
 import { RoleBadge } from '@/components/Badge'
@@ -112,14 +112,7 @@ export default function DashboardPage() {
     setConnecting(true)
 
     try {
-      // Test connection first
-      const isValid = await testCustomerConnection(supabaseUrl, serviceKey)
-      if (!isValid) {
-        setConnectError('Could not connect to your Supabase. Please check your URL and service role key.')
-        return
-      }
-
-      // Encrypt and store credentials
+      // Send credentials to API (connection test happens server-side)
       const response = await fetch('/api/connect', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -130,13 +123,13 @@ export default function DashboardPage() {
         }),
       })
 
+      const data = await response.json()
+
       if (!response.ok) {
-        const data = await response.json()
         throw new Error(data.error || 'Failed to save connection')
       }
 
-      const { connection: newConnection } = await response.json()
-      setConnection(newConnection)
+      setConnection(data.connection)
 
       // Clear form
       setSupabaseUrl('')
