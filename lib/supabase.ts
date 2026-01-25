@@ -62,6 +62,37 @@ export interface UserRow {
   kids: string[]
 }
 
+// Organization card for grid view
+export interface OrganizationCard {
+  id: string
+  name: string
+  staffCount: number
+  memberCount: number
+  playerCount: number
+  totalPeople: number
+}
+
+// Member in organization detail view
+export interface OrgMember {
+  id: string
+  profileId: string
+  name: string
+  email: string
+  role: string
+  kids: string[]
+}
+
+// Organization detail with members grouped by role
+export interface OrganizationDetail {
+  id: string
+  name: string
+  admins: OrgMember[]
+  coaches: OrgMember[]
+  staff: OrgMember[]
+  members: OrgMember[]
+  players: Array<{ id: string; name: string; guardianName: string; guardianEmail: string }>
+}
+
 // Singleton Supabase client for browser
 let browserClient: SupabaseClient | null = null
 
@@ -227,5 +258,148 @@ export async function testCustomerConnection(url: string, serviceRoleKey: string
     return !error
   } catch {
     return false
+  }
+}
+
+// Fetch organization-centric data for card grid view
+export async function fetchOrganizationCards(
+  customerClient: SupabaseClient
+): Promise<{
+  organizations: OrganizationCard[]
+  totalUsers: number
+  totalPlayers: number
+}> {
+  // Fetch all tables in parallel
+  const [profilesRes, orgsRes, staffRes, membersRes, playersRes] = await Promise.all([
+    customerClient.from('profiles').select('id'),
+    customerClient.from('organizations').select('*'),
+    customerClient.from('organization_staff').select('*'),
+    customerClient.from('organization_members').select('*'),
+    customerClient.from('players').select('*'),
+  ])
+
+  const profiles = profilesRes.data || []
+  const organizations: Organization[] = orgsRes.data || []
+  const staff: OrganizationStaff[] = staffRes.data || []
+  const members: OrganizationMember[] = membersRes.data || []
+  const players: Player[] = playersRes.data || []
+
+  // Build org cards with counts
+  const orgCards: OrganizationCard[] = organizations.map(org => {
+    const orgStaff = staff.filter(s => s.organization_id === org.id)
+    const orgMembers = members.filter(m => m.organization_id === org.id)
+    const orgPlayers = players.filter(p => p.organization_id === org.id)
+
+    return {
+      id: org.id,
+      name: org.name,
+      staffCount: orgStaff.length,
+      memberCount: orgMembers.length,
+      playerCount: orgPlayers.length,
+      totalPeople: orgStaff.length + orgMembers.length,
+    }
+  })
+
+  // Sort by total people descending
+  orgCards.sort((a, b) => b.totalPeople - a.totalPeople)
+
+  return {
+    organizations: orgCards,
+    totalUsers: profiles.length,
+    totalPlayers: players.length,
+  }
+}
+
+// Fetch detailed organization data with members
+export async function fetchOrganizationDetail(
+  customerClient: SupabaseClient,
+  orgId: string
+): Promise<OrganizationDetail | null> {
+  // Fetch org and related data
+  const [orgRes, staffRes, membersRes, playersRes, profilesRes] = await Promise.all([
+    customerClient.from('organizations').select('*').eq('id', orgId).single(),
+    customerClient.from('organization_staff').select('*').eq('organization_id', orgId),
+    customerClient.from('organization_members').select('*').eq('organization_id', orgId),
+    customerClient.from('players').select('*').eq('organization_id', orgId),
+    customerClient.from('profiles').select('*'),
+  ])
+
+  if (!orgRes.data) return null
+
+  const org: Organization = orgRes.data
+  const staff: OrganizationStaff[] = staffRes.data || []
+  const orgMembers: OrganizationMember[] = membersRes.data || []
+  const players: Player[] = playersRes.data || []
+  const profiles: Profile[] = profilesRes.data || []
+
+  // Build profile lookup
+  const profileMap = new Map<string, Profile>()
+  profiles.forEach(p => profileMap.set(p.id, p))
+
+  // Build kids map
+  const kidsMap = new Map<string, string[]>()
+  players.forEach(p => {
+    if (p.guardian_profile_id) {
+      const existing = kidsMap.get(p.guardian_profile_id) || []
+      existing.push(p.player_name)
+      kidsMap.set(p.guardian_profile_id, existing)
+    }
+  })
+
+  // Helper to create member object
+  const createMember = (profileId: string, role: string): OrgMember => {
+    const profile = profileMap.get(profileId)
+    return {
+      id: `${profileId}-${role}`,
+      profileId,
+      name: profile?.full_name || 'Unknown',
+      email: profile?.email || '-',
+      role,
+      kids: kidsMap.get(profileId) || [],
+    }
+  }
+
+  // Categorize staff by role
+  const admins: OrgMember[] = []
+  const coaches: OrgMember[] = []
+  const otherStaff: OrgMember[] = []
+
+  staff.forEach(s => {
+    const member = createMember(s.profile_id, s.role)
+    const roleLower = s.role.toLowerCase()
+    if (roleLower === 'admin' || roleLower === 'owner') {
+      admins.push(member)
+    } else if (roleLower === 'coach' || roleLower === 'assistant_coach') {
+      coaches.push(member)
+    } else {
+      otherStaff.push(member)
+    }
+  })
+
+  // Regular members (not staff)
+  const staffProfileIds = new Set(staff.map(s => s.profile_id))
+  const regularMembers = orgMembers
+    .filter(m => !staffProfileIds.has(m.profile_id))
+    .map(m => createMember(m.profile_id, 'member'))
+
+  // Players with guardian info
+  const playersList = players.map(p => {
+    const guardian = p.guardian_profile_id ? profileMap.get(p.guardian_profile_id) : null
+    return {
+      id: p.id,
+      name: p.player_name,
+      guardianName: guardian?.full_name || '-',
+      guardianEmail: guardian?.email || p.guardian_email || p.parent_email || '-',
+    }
+  })
+
+  return {
+    id: org.id,
+    name: org.name,
+    admins,
+    coaches,
+    staff: otherStaff,
+    members: regularMembers,
+    players: playersList,
   }
 }

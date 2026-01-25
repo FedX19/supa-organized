@@ -1,11 +1,22 @@
 'use client'
 
-import { useEffect, useState, useMemo, useCallback } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
-import { createSupabaseClient, createCustomerSupabaseClient, fetchCustomerData, UserRow, UserConnection } from '@/lib/supabase'
+import {
+  createSupabaseClient,
+  createCustomerSupabaseClient,
+  fetchOrganizationCards,
+  fetchOrganizationDetail,
+  OrganizationCard,
+  OrganizationDetail,
+  UserConnection,
+} from '@/lib/supabase'
 import { Sidebar } from '@/components/Sidebar'
 import { StatCard } from '@/components/StatCard'
-import { RoleBadge } from '@/components/Badge'
+import { OrgCard, OrgCardSkeleton } from '@/components/OrgCard'
+import { OrgDetailView, OrgDetailSkeleton } from '@/components/OrgDetail'
+
+type View = 'grid' | 'detail'
 
 export default function DashboardPage() {
   const router = useRouter()
@@ -20,40 +31,29 @@ export default function DashboardPage() {
   const [connectError, setConnectError] = useState('')
   const [connecting, setConnecting] = useState(false)
 
-  // Data state
-  const [users, setUsers] = useState<UserRow[]>([])
+  // Organization data state
+  const [organizations, setOrganizations] = useState<OrganizationCard[]>([])
   const [totalUsers, setTotalUsers] = useState(0)
-  const [totalOrgs, setTotalOrgs] = useState(0)
   const [totalPlayers, setTotalPlayers] = useState(0)
   const [dataLoading, setDataLoading] = useState(false)
   const [dataError, setDataError] = useState('')
+
+  // View state
+  const [currentView, setCurrentView] = useState<View>('grid')
+  const [selectedOrgId, setSelectedOrgId] = useState<string | null>(null)
+  const [orgDetail, setOrgDetail] = useState<OrganizationDetail | null>(null)
+  const [detailLoading, setDetailLoading] = useState(false)
 
   // Search state
   const [searchQuery, setSearchQuery] = useState('')
 
   // Get fresh access token with automatic refresh
   const getValidAccessToken = useCallback(async (): Promise<string | null> => {
-    console.log('[Auth] Getting valid access token...')
     try {
       const supabase = createSupabaseClient()
-
-      // First try to get current session
       const { data: { session }, error: sessionError } = await supabase.auth.getSession()
 
-      console.log('[Auth] Current session:', {
-        hasSession: !!session,
-        hasUser: !!session?.user,
-        hasToken: !!session?.access_token,
-        error: sessionError
-      })
-
-      if (sessionError) {
-        console.error('[Auth] Session error:', sessionError)
-        return null
-      }
-
-      if (!session) {
-        console.log('[Auth] No session found')
+      if (sessionError || !session) {
         return null
       }
 
@@ -62,24 +62,16 @@ export default function DashboardPage() {
       const now = Math.floor(Date.now() / 1000)
       const isExpired = expiresAt ? now >= expiresAt - 60 : false
 
-      console.log('[Auth] Token expiry check:', { expiresAt, now, isExpired })
-
       if (isExpired) {
-        console.log('[Auth] Token expired, refreshing...')
         const { data: { session: newSession }, error: refreshError } = await supabase.auth.refreshSession()
-
         if (refreshError || !newSession) {
-          console.error('[Auth] Refresh failed:', refreshError)
           return null
         }
-
-        console.log('[Auth] Token refreshed successfully')
         return newSession.access_token
       }
 
       return session.access_token
-    } catch (err) {
-      console.error('[Auth] Unexpected error:', err)
+    } catch {
       return null
     }
   }, [])
@@ -87,41 +79,29 @@ export default function DashboardPage() {
   // Check authentication and load connection
   useEffect(() => {
     async function init() {
-      console.log('[Init] Starting dashboard initialization...')
       try {
         const supabase = createSupabaseClient()
-        const { data: { session }, error: sessionError } = await supabase.auth.getSession()
-
-        console.log('[Init] Session check:', {
-          hasSession: !!session,
-          hasUser: !!session?.user,
-          userEmail: session?.user?.email,
-          error: sessionError
-        })
+        const { data: { session } } = await supabase.auth.getSession()
 
         if (!session?.user) {
-          console.log('[Init] No user, redirecting to login')
           router.push('/login')
           return
         }
 
         setUser({ id: session.user.id, email: session.user.email || '' })
 
-        // Load user's connection
-        console.log('[Init] Loading user connections...')
-        const { data: connections, error: connError } = await supabase
+        // Load user's connection (persistent)
+        const { data: existingConnection } = await supabase
           .from('user_connections')
           .select('*')
           .eq('user_id', session.user.id)
           .single()
 
-        console.log('[Init] Connection result:', { hasConnection: !!connections, error: connError })
-
-        if (connections) {
-          setConnection(connections)
+        if (existingConnection) {
+          setConnection(existingConnection)
         }
       } catch (error) {
-        console.error('[Init] Error:', error)
+        console.error('Init error:', error)
         router.push('/login')
       } finally {
         setLoading(false)
@@ -131,12 +111,11 @@ export default function DashboardPage() {
     init()
   }, [router])
 
-  // Load customer data when connection exists
+  // Load organization data when connection exists
   useEffect(() => {
     async function loadData() {
       if (!connection) return
 
-      console.log('[LoadData] Loading customer data...')
       setDataLoading(true)
       setDataError('')
 
@@ -163,19 +142,13 @@ export default function DashboardPage() {
 
         const { decrypted } = await response.json()
         const customerClient = createCustomerSupabaseClient(connection.supabase_url, decrypted)
-        const data = await fetchCustomerData(customerClient)
+        const data = await fetchOrganizationCards(customerClient)
 
-        setUsers(data.users)
+        setOrganizations(data.organizations)
         setTotalUsers(data.totalUsers)
-        setTotalOrgs(data.totalOrganizations)
         setTotalPlayers(data.totalPlayers)
-        console.log('[LoadData] Data loaded successfully:', {
-          users: data.totalUsers,
-          orgs: data.totalOrganizations,
-          players: data.totalPlayers
-        })
       } catch (error) {
-        console.error('[LoadData] Error:', error)
+        console.error('Data loading error:', error)
         setDataError(error instanceof Error ? error.message : 'Failed to load data')
       } finally {
         setDataLoading(false)
@@ -185,82 +158,85 @@ export default function DashboardPage() {
     loadData()
   }, [connection, getValidAccessToken])
 
+  // Load org detail when selected
+  useEffect(() => {
+    async function loadOrgDetail() {
+      if (!selectedOrgId || !connection) return
+
+      setDetailLoading(true)
+
+      try {
+        const token = await getValidAccessToken()
+        if (!token) throw new Error('Session expired')
+
+        const response = await fetch('/api/decrypt', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`,
+          },
+          body: JSON.stringify({ encrypted: connection.encrypted_key }),
+        })
+
+        if (!response.ok) throw new Error('Failed to decrypt')
+
+        const { decrypted } = await response.json()
+        const customerClient = createCustomerSupabaseClient(connection.supabase_url, decrypted)
+        const detail = await fetchOrganizationDetail(customerClient, selectedOrgId)
+
+        setOrgDetail(detail)
+      } catch (error) {
+        console.error('Detail loading error:', error)
+      } finally {
+        setDetailLoading(false)
+      }
+    }
+
+    loadOrgDetail()
+  }, [selectedOrgId, connection, getValidAccessToken])
+
   // Handle connect form submission
   const handleConnect = async (e: React.FormEvent) => {
     e.preventDefault()
-    console.log('[Connect] ========== CONNECT STARTED ==========')
-    console.log('[Connect] Form values:', {
-      supabaseUrl,
-      serviceKeyLength: serviceKey?.length,
-      serviceKeyPrefix: serviceKey?.substring(0, 30) + '...',
-      connectionName
-    })
-
     setConnectError('')
     setConnecting(true)
 
     try {
-      // Step 1: Get valid access token
-      console.log('[Connect] Step 1: Getting access token...')
       const token = await getValidAccessToken()
-
-      console.log('[Connect] Token result:', {
-        hasToken: !!token,
-        tokenLength: token?.length,
-        tokenPrefix: token?.substring(0, 30) + '...'
-      })
-
       if (!token) {
-        console.log('[Connect] No token available, redirecting to login')
         setConnectError('Session expired. Please log in again.')
         router.push('/login')
         return
       }
 
-      // Step 2: Prepare request
-      console.log('[Connect] Step 2: Making API request...')
-      const requestBody = {
-        supabaseUrl: supabaseUrl.trim(),
-        serviceKey: serviceKey.trim(),
-        connectionName: connectionName.trim() || 'My Supabase',
-      }
-      console.log('[Connect] Request body:', {
-        ...requestBody,
-        serviceKey: requestBody.serviceKey.substring(0, 30) + '...'
-      })
-
-      // Step 3: Make API call
       const response = await fetch('/api/connect', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`,
         },
-        body: JSON.stringify(requestBody),
+        body: JSON.stringify({
+          supabaseUrl: supabaseUrl.trim(),
+          serviceKey: serviceKey.trim(),
+          connectionName: connectionName.trim() || 'My Supabase',
+        }),
       })
 
-      console.log('[Connect] Response status:', response.status, response.statusText)
-
       const data = await response.json()
-      console.log('[Connect] Response data:', data)
 
       if (!response.ok) {
         throw new Error(data.error || `Request failed with status ${response.status}`)
       }
 
-      console.log('[Connect] SUCCESS! Connection saved:', data.connection?.id)
       setConnection(data.connection)
-
-      // Clear form
       setSupabaseUrl('')
       setServiceKey('')
       setConnectionName('My Supabase')
     } catch (error) {
-      console.error('[Connect] ERROR:', error)
+      console.error('Connect error:', error)
       setConnectError(error instanceof Error ? error.message : 'Failed to connect')
     } finally {
       setConnecting(false)
-      console.log('[Connect] ========== CONNECT FINISHED ==========')
     }
   }
 
@@ -279,19 +255,20 @@ export default function DashboardPage() {
 
       const response = await fetch('/api/disconnect', {
         method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-        },
+        headers: { 'Authorization': `Bearer ${token}` },
       })
+
       if (!response.ok) {
         throw new Error('Failed to disconnect')
       }
 
       setConnection(null)
-      setUsers([])
+      setOrganizations([])
       setTotalUsers(0)
-      setTotalOrgs(0)
       setTotalPlayers(0)
+      setCurrentView('grid')
+      setSelectedOrgId(null)
+      setOrgDetail(null)
     } catch (error) {
       console.error('Disconnect error:', error)
     }
@@ -304,18 +281,27 @@ export default function DashboardPage() {
     router.push('/login')
   }
 
-  // Filter users based on search query
-  const filteredUsers = useMemo(() => {
-    if (!searchQuery.trim()) return users
+  // Handle org card click
+  const handleOrgClick = (orgId: string) => {
+    setSelectedOrgId(orgId)
+    setCurrentView('detail')
+    setSearchQuery('')
+  }
 
-    const query = searchQuery.toLowerCase()
-    return users.filter(user =>
-      user.name.toLowerCase().includes(query) ||
-      user.email.toLowerCase().includes(query) ||
-      user.organization.toLowerCase().includes(query) ||
-      user.role.toLowerCase().includes(query)
-    )
-  }, [users, searchQuery])
+  // Handle back to grid
+  const handleBackToGrid = () => {
+    setCurrentView('grid')
+    setSelectedOrgId(null)
+    setOrgDetail(null)
+    setSearchQuery('')
+  }
+
+  // Filter organizations by search
+  const filteredOrgs = searchQuery.trim()
+    ? organizations.filter(org =>
+        org.name.toLowerCase().includes(searchQuery.toLowerCase())
+      )
+    : organizations
 
   if (loading) {
     return (
@@ -331,28 +317,26 @@ export default function DashboardPage() {
     )
   }
 
-  if (!user) {
-    return null
-  }
+  if (!user) return null
 
   return (
     <div className="min-h-screen bg-background flex">
-      {/* Sidebar */}
       <Sidebar userEmail={user.email} onLogout={handleLogout} />
 
-      {/* Main Content */}
       <div className="flex-1 p-8">
         {/* Header */}
         <div className="mb-8">
           <p className="text-primary font-semibold text-sm uppercase tracking-wider mb-1">
             SUPAORGANIZED
           </p>
-          <h1 className="text-3xl font-bold text-white">Dashboard</h1>
+          <h1 className="text-3xl font-bold text-white">
+            {currentView === 'grid' ? 'Organizations' : 'Organization Details'}
+          </h1>
         </div>
 
         {!connection ? (
           /* Connection Form */
-          <div className="max-w-2xl">
+          <div className="max-w-2xl animate-fadeIn">
             <div className="bg-card border border-card-border rounded-xl p-8">
               <h2 className="text-2xl font-bold text-white mb-2">Connect Your Supabase</h2>
               <p className="text-slate-400 mb-6">
@@ -368,11 +352,10 @@ export default function DashboardPage() {
 
               <form onSubmit={handleConnect} className="space-y-4">
                 <div>
-                  <label htmlFor="connectionName" className="block text-slate-400 text-xs font-semibold uppercase tracking-wide mb-2">
+                  <label className="block text-slate-400 text-xs font-semibold uppercase tracking-wide mb-2">
                     Connection Name (optional)
                   </label>
                   <input
-                    id="connectionName"
                     type="text"
                     value={connectionName}
                     onChange={(e) => setConnectionName(e.target.value)}
@@ -382,11 +365,10 @@ export default function DashboardPage() {
                 </div>
 
                 <div>
-                  <label htmlFor="supabaseUrl" className="block text-slate-400 text-xs font-semibold uppercase tracking-wide mb-2">
+                  <label className="block text-slate-400 text-xs font-semibold uppercase tracking-wide mb-2">
                     Supabase URL
                   </label>
                   <input
-                    id="supabaseUrl"
                     type="url"
                     value={supabaseUrl}
                     onChange={(e) => setSupabaseUrl(e.target.value)}
@@ -398,11 +380,10 @@ export default function DashboardPage() {
                 </div>
 
                 <div>
-                  <label htmlFor="serviceKey" className="block text-slate-400 text-xs font-semibold uppercase tracking-wide mb-2">
+                  <label className="block text-slate-400 text-xs font-semibold uppercase tracking-wide mb-2">
                     Service Role Key
                   </label>
                   <input
-                    id="serviceKey"
                     type="password"
                     value={serviceKey}
                     onChange={(e) => setServiceKey(e.target.value)}
@@ -411,7 +392,7 @@ export default function DashboardPage() {
                     required
                   />
                   <p className="text-slate-500 text-xs mt-1">
-                    Found in Project Settings → API → service_role key. Never share this publicly.
+                    Found in Project Settings → API → service_role key
                   </p>
                 </div>
 
@@ -437,11 +418,11 @@ export default function DashboardPage() {
           </div>
         ) : (
           /* Connected Dashboard */
-          <div className="space-y-6">
+          <div className="space-y-6 animate-fadeIn">
             {/* Connection Bar */}
             <div className="flex items-center justify-between bg-card border border-card-border rounded-xl p-4">
               <div className="flex items-center gap-3">
-                <div className="w-3 h-3 bg-green-500 rounded-full"></div>
+                <div className="w-3 h-3 bg-green-500 rounded-full animate-pulse"></div>
                 <span className="text-white font-medium">{connection.connection_name}</span>
                 <span className="text-slate-500 text-sm truncate max-w-xs">{connection.supabase_url}</span>
               </div>
@@ -463,53 +444,53 @@ export default function DashboardPage() {
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="w-full bg-card border border-card-border text-white placeholder-slate-500 rounded-lg pl-12 pr-4 py-3 focus:ring-2 focus:ring-primary/50 focus:border-primary transition-colors"
-                placeholder="Search by name, email, or organization..."
+                placeholder={currentView === 'grid' ? 'Search organizations...' : 'Search members...'}
               />
             </div>
 
-            {/* Stats Cards */}
-            <div className="grid md:grid-cols-3 gap-6">
-              <StatCard
-                label="Total Users"
-                value={totalUsers}
-                icon={
-                  <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" />
-                  </svg>
-                }
-              />
-              <StatCard
-                label="Total Organizations"
-                value={totalOrgs}
-                icon={
-                  <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
-                  </svg>
-                }
-              />
-              <StatCard
-                label="Total Players"
-                value={totalPlayers}
-                icon={
-                  <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
-                  </svg>
-                }
-              />
-            </div>
+            {/* Stats Cards (only in grid view) */}
+            {currentView === 'grid' && (
+              <div className="grid md:grid-cols-3 gap-6">
+                <StatCard
+                  label="Organizations"
+                  value={organizations.length}
+                  icon={
+                    <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+                    </svg>
+                  }
+                />
+                <StatCard
+                  label="Total Users"
+                  value={totalUsers}
+                  icon={
+                    <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" />
+                    </svg>
+                  }
+                />
+                <StatCard
+                  label="Total Players"
+                  value={totalPlayers}
+                  icon={
+                    <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+                    </svg>
+                  }
+                />
+              </div>
+            )}
 
-            {/* Data Table */}
+            {/* Content */}
             {dataLoading ? (
-              <div className="bg-card border border-card-border rounded-xl p-12 flex items-center justify-center">
-                <div className="flex items-center gap-3 text-slate-400">
-                  <svg className="animate-spin h-6 w-6" viewBox="0 0 24 24">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-                  </svg>
-                  Loading data...
-                </div>
+              /* Loading skeleton */
+              <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
+                {[1, 2, 3, 4, 5, 6].map(i => (
+                  <OrgCardSkeleton key={i} />
+                ))}
               </div>
             ) : dataError ? (
+              /* Error state */
               <div className="bg-card border border-card-border rounded-xl p-8">
                 <div className="text-center">
                   <svg className="w-12 h-12 text-red-400 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -524,73 +505,45 @@ export default function DashboardPage() {
                   </button>
                 </div>
               </div>
-            ) : filteredUsers.length === 0 ? (
-              <div className="bg-card border border-card-border rounded-xl p-12">
-                <div className="text-center">
-                  <svg className="w-12 h-12 text-slate-500 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-                  </svg>
-                  <p className="text-slate-400">
-                    {searchQuery ? 'No users match your search.' : 'No users found in your database.'}
-                  </p>
+            ) : currentView === 'grid' ? (
+              /* Organization Grid */
+              filteredOrgs.length === 0 ? (
+                <div className="bg-card border border-card-border rounded-xl p-12">
+                  <div className="text-center">
+                    <svg className="w-12 h-12 text-slate-500 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+                    </svg>
+                    <p className="text-slate-400">
+                      {searchQuery ? 'No organizations match your search.' : 'No organizations found.'}
+                    </p>
+                  </div>
                 </div>
-              </div>
+              ) : (
+                <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
+                  {filteredOrgs.map((org, index) => (
+                    <div
+                      key={org.id}
+                      className="animate-slideUp"
+                      style={{ animationDelay: `${index * 50}ms` }}
+                    >
+                      <OrgCard org={org} onClick={() => handleOrgClick(org.id)} />
+                    </div>
+                  ))}
+                </div>
+              )
             ) : (
-              <div className="bg-card border border-card-border rounded-xl overflow-hidden">
-                <div className="overflow-x-auto">
-                  <table className="w-full">
-                    <thead>
-                      <tr className="border-b border-card-border">
-                        <th className="text-left text-slate-400 text-xs font-semibold uppercase tracking-wide px-6 py-4">
-                          Name
-                        </th>
-                        <th className="text-left text-slate-400 text-xs font-semibold uppercase tracking-wide px-6 py-4">
-                          Email
-                        </th>
-                        <th className="text-left text-slate-400 text-xs font-semibold uppercase tracking-wide px-6 py-4">
-                          Organization
-                        </th>
-                        <th className="text-left text-slate-400 text-xs font-semibold uppercase tracking-wide px-6 py-4">
-                          Role
-                        </th>
-                        <th className="text-left text-slate-400 text-xs font-semibold uppercase tracking-wide px-6 py-4">
-                          Kids/Players
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {filteredUsers.map((user) => (
-                        <tr key={user.id} className="border-b border-card-border hover:bg-card-hover transition-colors">
-                          <td className="px-6 py-4">
-                            <span className="text-white font-medium">{user.name}</span>
-                          </td>
-                          <td className="px-6 py-4">
-                            <span className="text-slate-300">{user.email}</span>
-                          </td>
-                          <td className="px-6 py-4">
-                            <span className="text-slate-300">{user.organization}</span>
-                          </td>
-                          <td className="px-6 py-4">
-                            <RoleBadge role={user.role} />
-                          </td>
-                          <td className="px-6 py-4">
-                            {user.kids.length > 0 ? (
-                              <span className="text-slate-300">{user.kids.join(', ')}</span>
-                            ) : (
-                              <span className="text-slate-500">-</span>
-                            )}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-                <div className="border-t border-card-border px-6 py-4">
-                  <p className="text-slate-500 text-sm">
-                    Showing {filteredUsers.length} of {users.length} entries
-                  </p>
-                </div>
-              </div>
+              /* Organization Detail View */
+              detailLoading ? (
+                <OrgDetailSkeleton />
+              ) : orgDetail ? (
+                <OrgDetailView
+                  org={orgDetail}
+                  searchQuery={searchQuery}
+                  onBack={handleBackToGrid}
+                />
+              ) : (
+                <div className="text-center text-slate-400">Organization not found</div>
+              )
             )}
           </div>
         )}
