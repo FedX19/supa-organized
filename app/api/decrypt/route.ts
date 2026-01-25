@@ -17,28 +17,18 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Server configuration error' }, { status: 500 })
     }
 
-    // Verify user is authenticated
-    const supabase = createClient(supabaseUrl, supabaseAnonKey, {
-      auth: {
-        persistSession: false,
-      },
-    })
-
+    // Get access token from Authorization header
     const authHeader = request.headers.get('authorization')
-    let userId: string | null = null
-
-    if (authHeader?.startsWith('Bearer ')) {
-      const token = authHeader.substring(7)
-      const { data: { user } } = await supabase.auth.getUser(token)
-      userId = user?.id || null
+    if (!authHeader?.startsWith('Bearer ')) {
+      return NextResponse.json({ error: 'Missing authorization token' }, { status: 401 })
     }
+    const token = authHeader.substring(7)
 
-    if (!userId) {
-      const { data: { user } } = await supabase.auth.getUser()
-      userId = user?.id || null
-    }
+    // Create Supabase client and verify the user
+    const supabase = createClient(supabaseUrl, supabaseAnonKey)
+    const { data: { user }, error: authError } = await supabase.auth.getUser(token)
 
-    if (!userId) {
+    if (authError || !user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 

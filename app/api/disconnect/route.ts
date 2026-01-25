@@ -11,29 +11,18 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Server configuration error' }, { status: 500 })
     }
 
-    // Create client to get user
-    const supabaseAnon = createClient(supabaseUrl, supabaseAnonKey, {
-      auth: {
-        persistSession: false,
-      },
-    })
-
-    // Get user from auth header
+    // Get access token from Authorization header
     const authHeader = request.headers.get('authorization')
-    let userId: string | null = null
-
-    if (authHeader?.startsWith('Bearer ')) {
-      const token = authHeader.substring(7)
-      const { data: { user } } = await supabaseAnon.auth.getUser(token)
-      userId = user?.id || null
+    if (!authHeader?.startsWith('Bearer ')) {
+      return NextResponse.json({ error: 'Missing authorization token' }, { status: 401 })
     }
+    const token = authHeader.substring(7)
 
-    if (!userId) {
-      const { data: { user } } = await supabaseAnon.auth.getUser()
-      userId = user?.id || null
-    }
+    // Create Supabase client and verify the user
+    const supabase = createClient(supabaseUrl, supabaseAnonKey)
+    const { data: { user }, error: authError } = await supabase.auth.getUser(token)
 
-    if (!userId) {
+    if (authError || !user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
@@ -43,7 +32,7 @@ export async function POST(request: NextRequest) {
     const { error } = await supabaseAdmin
       .from('user_connections')
       .delete()
-      .eq('user_id', userId)
+      .eq('user_id', user.id)
 
     if (error) {
       console.error('Delete error:', error)

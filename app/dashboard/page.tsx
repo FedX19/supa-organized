@@ -1,8 +1,8 @@
 'use client'
 
-import { useEffect, useState, useMemo } from 'react'
+import { useEffect, useState, useMemo, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
-import { createSupabaseClient, createCustomerSupabaseClient, fetchCustomerData, testCustomerConnection, UserRow, UserConnection } from '@/lib/supabase'
+import { createSupabaseClient, createCustomerSupabaseClient, fetchCustomerData, UserRow, UserConnection } from '@/lib/supabase'
 import { Sidebar } from '@/components/Sidebar'
 import { StatCard } from '@/components/StatCard'
 import { RoleBadge } from '@/components/Badge'
@@ -31,32 +31,97 @@ export default function DashboardPage() {
   // Search state
   const [searchQuery, setSearchQuery] = useState('')
 
+  // Get fresh access token with automatic refresh
+  const getValidAccessToken = useCallback(async (): Promise<string | null> => {
+    console.log('[Auth] Getting valid access token...')
+    try {
+      const supabase = createSupabaseClient()
+
+      // First try to get current session
+      const { data: { session }, error: sessionError } = await supabase.auth.getSession()
+
+      console.log('[Auth] Current session:', {
+        hasSession: !!session,
+        hasUser: !!session?.user,
+        hasToken: !!session?.access_token,
+        error: sessionError
+      })
+
+      if (sessionError) {
+        console.error('[Auth] Session error:', sessionError)
+        return null
+      }
+
+      if (!session) {
+        console.log('[Auth] No session found')
+        return null
+      }
+
+      // Check if token is expired or about to expire (within 60 seconds)
+      const expiresAt = session.expires_at
+      const now = Math.floor(Date.now() / 1000)
+      const isExpired = expiresAt ? now >= expiresAt - 60 : false
+
+      console.log('[Auth] Token expiry check:', { expiresAt, now, isExpired })
+
+      if (isExpired) {
+        console.log('[Auth] Token expired, refreshing...')
+        const { data: { session: newSession }, error: refreshError } = await supabase.auth.refreshSession()
+
+        if (refreshError || !newSession) {
+          console.error('[Auth] Refresh failed:', refreshError)
+          return null
+        }
+
+        console.log('[Auth] Token refreshed successfully')
+        return newSession.access_token
+      }
+
+      return session.access_token
+    } catch (err) {
+      console.error('[Auth] Unexpected error:', err)
+      return null
+    }
+  }, [])
+
   // Check authentication and load connection
   useEffect(() => {
     async function init() {
+      console.log('[Init] Starting dashboard initialization...')
       try {
         const supabase = createSupabaseClient()
-        const { data: { user } } = await supabase.auth.getUser()
+        const { data: { session }, error: sessionError } = await supabase.auth.getSession()
 
-        if (!user) {
+        console.log('[Init] Session check:', {
+          hasSession: !!session,
+          hasUser: !!session?.user,
+          userEmail: session?.user?.email,
+          error: sessionError
+        })
+
+        if (!session?.user) {
+          console.log('[Init] No user, redirecting to login')
           router.push('/login')
           return
         }
 
-        setUser({ id: user.id, email: user.email || '' })
+        setUser({ id: session.user.id, email: session.user.email || '' })
 
         // Load user's connection
-        const { data: connections } = await supabase
+        console.log('[Init] Loading user connections...')
+        const { data: connections, error: connError } = await supabase
           .from('user_connections')
           .select('*')
-          .eq('user_id', user.id)
+          .eq('user_id', session.user.id)
           .single()
+
+        console.log('[Init] Connection result:', { hasConnection: !!connections, error: connError })
 
         if (connections) {
           setConnection(connections)
         }
       } catch (error) {
-        console.error('Init error:', error)
+        console.error('[Init] Error:', error)
         router.push('/login')
       } finally {
         setLoading(false)
@@ -71,19 +136,29 @@ export default function DashboardPage() {
     async function loadData() {
       if (!connection) return
 
+      console.log('[LoadData] Loading customer data...')
       setDataLoading(true)
       setDataError('')
 
       try {
-        // Decrypt the key and create customer client
+        const token = await getValidAccessToken()
+        if (!token) {
+          throw new Error('Session expired')
+        }
+
+        // Decrypt the key
         const response = await fetch('/api/decrypt', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`,
+          },
           body: JSON.stringify({ encrypted: connection.encrypted_key }),
         })
 
         if (!response.ok) {
-          throw new Error('Failed to decrypt credentials')
+          const errData = await response.json()
+          throw new Error(errData.error || 'Failed to decrypt credentials')
         }
 
         const { decrypted } = await response.json()
@@ -94,58 +169,98 @@ export default function DashboardPage() {
         setTotalUsers(data.totalUsers)
         setTotalOrgs(data.totalOrganizations)
         setTotalPlayers(data.totalPlayers)
+        console.log('[LoadData] Data loaded successfully:', {
+          users: data.totalUsers,
+          orgs: data.totalOrganizations,
+          players: data.totalPlayers
+        })
       } catch (error) {
-        console.error('Data loading error:', error)
-        setDataError('Failed to load data from your Supabase. Please check your connection.')
+        console.error('[LoadData] Error:', error)
+        setDataError(error instanceof Error ? error.message : 'Failed to load data')
       } finally {
         setDataLoading(false)
       }
     }
 
     loadData()
-  }, [connection])
+  }, [connection, getValidAccessToken])
 
   // Handle connect form submission
   const handleConnect = async (e: React.FormEvent) => {
     e.preventDefault()
+    console.log('[Connect] ========== CONNECT STARTED ==========')
+    console.log('[Connect] Form values:', {
+      supabaseUrl,
+      serviceKeyLength: serviceKey?.length,
+      serviceKeyPrefix: serviceKey?.substring(0, 30) + '...',
+      connectionName
+    })
+
     setConnectError('')
     setConnecting(true)
 
     try {
-      // Test connection first
-      const isValid = await testCustomerConnection(supabaseUrl, serviceKey)
-      if (!isValid) {
-        setConnectError('Could not connect to your Supabase. Please check your URL and service role key.')
+      // Step 1: Get valid access token
+      console.log('[Connect] Step 1: Getting access token...')
+      const token = await getValidAccessToken()
+
+      console.log('[Connect] Token result:', {
+        hasToken: !!token,
+        tokenLength: token?.length,
+        tokenPrefix: token?.substring(0, 30) + '...'
+      })
+
+      if (!token) {
+        console.log('[Connect] No token available, redirecting to login')
+        setConnectError('Session expired. Please log in again.')
+        router.push('/login')
         return
       }
 
-      // Encrypt and store credentials
-      const response = await fetch('/api/connect', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          supabaseUrl,
-          serviceKey,
-          connectionName: connectionName || 'My Supabase',
-        }),
+      // Step 2: Prepare request
+      console.log('[Connect] Step 2: Making API request...')
+      const requestBody = {
+        supabaseUrl: supabaseUrl.trim(),
+        serviceKey: serviceKey.trim(),
+        connectionName: connectionName.trim() || 'My Supabase',
+      }
+      console.log('[Connect] Request body:', {
+        ...requestBody,
+        serviceKey: requestBody.serviceKey.substring(0, 30) + '...'
       })
 
+      // Step 3: Make API call
+      const response = await fetch('/api/connect', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify(requestBody),
+      })
+
+      console.log('[Connect] Response status:', response.status, response.statusText)
+
+      const data = await response.json()
+      console.log('[Connect] Response data:', data)
+
       if (!response.ok) {
-        const data = await response.json()
-        throw new Error(data.error || 'Failed to save connection')
+        throw new Error(data.error || `Request failed with status ${response.status}`)
       }
 
-      const { connection: newConnection } = await response.json()
-      setConnection(newConnection)
+      console.log('[Connect] SUCCESS! Connection saved:', data.connection?.id)
+      setConnection(data.connection)
 
       // Clear form
       setSupabaseUrl('')
       setServiceKey('')
+      setConnectionName('My Supabase')
     } catch (error) {
-      console.error('Connect error:', error)
+      console.error('[Connect] ERROR:', error)
       setConnectError(error instanceof Error ? error.message : 'Failed to connect')
     } finally {
       setConnecting(false)
+      console.log('[Connect] ========== CONNECT FINISHED ==========')
     }
   }
 
@@ -156,7 +271,18 @@ export default function DashboardPage() {
     }
 
     try {
-      const response = await fetch('/api/disconnect', { method: 'POST' })
+      const token = await getValidAccessToken()
+      if (!token) {
+        router.push('/login')
+        return
+      }
+
+      const response = await fetch('/api/disconnect', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+      })
       if (!response.ok) {
         throw new Error('Failed to disconnect')
       }
