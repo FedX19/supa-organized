@@ -34,8 +34,16 @@ export default function DashboardPage() {
 
   // Helper to get fresh access token
   const getAccessToken = async (): Promise<string | null> => {
+    console.log('getAccessToken called')
     const supabase = createSupabaseClient()
-    const { data: { session } } = await supabase.auth.getSession()
+    const { data: { session }, error } = await supabase.auth.getSession()
+    console.log('getSession result:', {
+      hasSession: !!session,
+      hasUser: !!session?.user,
+      hasToken: !!session?.access_token,
+      tokenLength: session?.access_token?.length,
+      error
+    })
     return session?.access_token || null
   }
 
@@ -120,19 +128,27 @@ export default function DashboardPage() {
   // Handle connect form submission
   const handleConnect = async (e: React.FormEvent) => {
     e.preventDefault()
+    console.log('handleConnect called')
+    console.log('Form values:', { supabaseUrl, serviceKey: serviceKey?.substring(0, 20) + '...', connectionName })
+
     setConnectError('')
     setConnecting(true)
 
     try {
       // Get fresh access token
+      console.log('Getting access token...')
       const token = await getAccessToken()
+      console.log('Token result:', { hasToken: !!token, tokenLength: token?.length })
+
       if (!token) {
+        console.log('No token - redirecting to login')
         setConnectError('Session expired. Please log in again.')
         router.push('/login')
         return
       }
 
       // Send credentials to API (connection test happens server-side)
+      console.log('Making API request to /api/connect...')
       const response = await fetch('/api/connect', {
         method: 'POST',
         headers: {
@@ -146,7 +162,9 @@ export default function DashboardPage() {
         }),
       })
 
+      console.log('API response status:', response.status)
       const data = await response.json()
+      console.log('API response data:', data)
 
       if (!response.ok) {
         throw new Error(data.error || 'Failed to save connection')
