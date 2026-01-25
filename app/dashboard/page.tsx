@@ -32,6 +32,13 @@ export default function DashboardPage() {
   // Search state
   const [searchQuery, setSearchQuery] = useState('')
 
+  // Helper to get fresh access token
+  const getAccessToken = async (): Promise<string | null> => {
+    const supabase = createSupabaseClient()
+    const { data: { session } } = await supabase.auth.getSession()
+    return session?.access_token || null
+  }
+
   // Check authentication and load connection
   useEffect(() => {
     async function init() {
@@ -117,12 +124,20 @@ export default function DashboardPage() {
     setConnecting(true)
 
     try {
+      // Get fresh access token
+      const token = await getAccessToken()
+      if (!token) {
+        setConnectError('Session expired. Please log in again.')
+        router.push('/login')
+        return
+      }
+
       // Send credentials to API (connection test happens server-side)
       const response = await fetch('/api/connect', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${accessToken}`,
+          'Authorization': `Bearer ${token}`,
         },
         body: JSON.stringify({
           supabaseUrl,
@@ -157,10 +172,11 @@ export default function DashboardPage() {
     }
 
     try {
+      const token = await getAccessToken()
       const response = await fetch('/api/disconnect', {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${accessToken}`,
+          'Authorization': `Bearer ${token}`,
         },
       })
       if (!response.ok) {
