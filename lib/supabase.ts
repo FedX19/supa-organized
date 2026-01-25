@@ -1066,3 +1066,274 @@ LEFT JOIN organization_staff os ON p.id = os.profile_id AND om.organization_id =
 LEFT JOIN organizations o ON COALESCE(om.organization_id, os.organization_id) = o.id
 ORDER BY p.full_name, o.name;`
 }
+
+// ========== ANALYTICS TYPES ==========
+
+export interface UserActivity {
+  id: string
+  profile_id: string
+  organization_id: string | null
+  event_type: string
+  timestamp: string
+  metadata?: Record<string, unknown>
+}
+
+export interface AnalyticsData {
+  activities: UserActivity[]
+  hasTable: boolean
+  error?: string
+}
+
+export interface UserEngagement {
+  profileId: string
+  name: string
+  email: string
+  totalEvents: number
+  lastActive: Date | null
+  engagementLevel: 'high' | 'medium' | 'low' | 'dormant'
+  eventTypes: Record<string, number>
+}
+
+export interface OrgEngagement {
+  orgId: string
+  orgName: string
+  totalEvents: number
+  activeUsers: number
+  avgEventsPerUser: number
+}
+
+export interface FeatureUsage {
+  eventType: string
+  count: number
+  percentage: number
+}
+
+export interface AnalyticsSummary {
+  totalEvents: number
+  totalActiveUsers: number
+  engagementRate: number
+  highEngagement: number
+  mediumEngagement: number
+  lowEngagement: number
+  dormantUsers: number
+  topFeatures: FeatureUsage[]
+  topUsers: UserEngagement[]
+  orgEngagement: OrgEngagement[]
+  dormantUsersList: UserEngagement[]
+}
+
+export type DateRange = '7d' | '30d' | '90d' | 'all'
+
+// ========== ANALYTICS FUNCTIONS ==========
+
+// Fetch user activity data from customer database
+export async function fetchUserActivity(
+  customerClient: SupabaseClient,
+  dateRange: DateRange = 'all'
+): Promise<AnalyticsData> {
+  try {
+    // First check if the table exists by trying to select from it
+    let query = customerClient.from('user_activity').select('*')
+
+    // Apply date filter if needed
+    if (dateRange !== 'all') {
+      const now = new Date()
+      let startDate: Date
+
+      switch (dateRange) {
+        case '7d':
+          startDate = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000)
+          break
+        case '30d':
+          startDate = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000)
+          break
+        case '90d':
+          startDate = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000)
+          break
+      }
+
+      query = query.gte('timestamp', startDate.toISOString())
+    }
+
+    const { data, error } = await query.order('timestamp', { ascending: false })
+
+    if (error) {
+      // Check if error is because table doesn't exist
+      if (error.message?.includes('does not exist') || error.code === '42P01') {
+        return {
+          activities: [],
+          hasTable: false,
+          error: 'The user_activity table does not exist in this database.',
+        }
+      }
+      return {
+        activities: [],
+        hasTable: true,
+        error: error.message,
+      }
+    }
+
+    return {
+      activities: data || [],
+      hasTable: true,
+    }
+  } catch (err) {
+    return {
+      activities: [],
+      hasTable: false,
+      error: err instanceof Error ? err.message : 'Failed to fetch activity data',
+    }
+  }
+}
+
+// Calculate engagement level based on activity
+function calculateEngagementLevel(
+  eventCount: number,
+  lastActiveDate: Date | null,
+  dateRangeDays: number
+): 'high' | 'medium' | 'low' | 'dormant' {
+  const now = new Date()
+
+  // Check for dormant (no activity in 30+ days)
+  if (!lastActiveDate || (now.getTime() - lastActiveDate.getTime()) > 30 * 24 * 60 * 60 * 1000) {
+    return 'dormant'
+  }
+
+  // Calculate expected events per period
+  const avgEventsPerDay = eventCount / Math.max(dateRangeDays, 1)
+
+  if (avgEventsPerDay >= 1) return 'high'
+  if (avgEventsPerDay >= 0.3) return 'medium'
+  return 'low'
+}
+
+// Generate analytics summary from activity data
+export function generateAnalyticsSummary(
+  activities: UserActivity[],
+  rawData: RawDiagnosticData,
+  dateRange: DateRange = 'all'
+): AnalyticsSummary {
+  const profileMap = new Map<string, Profile>()
+  rawData.profiles.forEach(p => profileMap.set(p.id, p))
+
+  const orgMap = new Map<string, Organization>()
+  rawData.organizations.forEach(o => orgMap.set(o.id, o))
+
+  // Get date range in days
+  const dateRangeDays = dateRange === '7d' ? 7 : dateRange === '30d' ? 30 : dateRange === '90d' ? 90 : 365
+
+  // Group activities by user
+  const userActivities = new Map<string, UserActivity[]>()
+  activities.forEach(activity => {
+    const existing = userActivities.get(activity.profile_id) || []
+    existing.push(activity)
+    userActivities.set(activity.profile_id, existing)
+  })
+
+  // Calculate user engagement
+  const userEngagements: UserEngagement[] = []
+  userActivities.forEach((userActs, profileId) => {
+    const profile = profileMap.get(profileId)
+    const eventTypes: Record<string, number> = {}
+
+    userActs.forEach(act => {
+      eventTypes[act.event_type] = (eventTypes[act.event_type] || 0) + 1
+    })
+
+    const sortedByDate = [...userActs].sort(
+      (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+    )
+    const lastActive = sortedByDate[0] ? new Date(sortedByDate[0].timestamp) : null
+
+    userEngagements.push({
+      profileId,
+      name: profile?.full_name || 'Unknown User',
+      email: profile?.email || '-',
+      totalEvents: userActs.length,
+      lastActive,
+      engagementLevel: calculateEngagementLevel(userActs.length, lastActive, dateRangeDays),
+      eventTypes,
+    })
+  })
+
+  // Add dormant users (profiles with no activity)
+  rawData.profiles.forEach(profile => {
+    if (!userActivities.has(profile.id)) {
+      userEngagements.push({
+        profileId: profile.id,
+        name: profile.full_name || 'Unknown User',
+        email: profile.email || '-',
+        totalEvents: 0,
+        lastActive: null,
+        engagementLevel: 'dormant',
+        eventTypes: {},
+      })
+    }
+  })
+
+  // Sort by total events
+  userEngagements.sort((a, b) => b.totalEvents - a.totalEvents)
+
+  // Calculate org engagement
+  const orgActivities = new Map<string, { events: number; users: Set<string> }>()
+  activities.forEach(activity => {
+    if (activity.organization_id) {
+      const existing = orgActivities.get(activity.organization_id) || { events: 0, users: new Set() }
+      existing.events++
+      existing.users.add(activity.profile_id)
+      orgActivities.set(activity.organization_id, existing)
+    }
+  })
+
+  const orgEngagement: OrgEngagement[] = []
+  orgActivities.forEach((data, orgId) => {
+    const org = orgMap.get(orgId)
+    orgEngagement.push({
+      orgId,
+      orgName: org?.name || 'Unknown Organization',
+      totalEvents: data.events,
+      activeUsers: data.users.size,
+      avgEventsPerUser: data.users.size > 0 ? Math.round((data.events / data.users.size) * 10) / 10 : 0,
+    })
+  })
+  orgEngagement.sort((a, b) => b.totalEvents - a.totalEvents)
+
+  // Calculate feature usage
+  const featureCounts = new Map<string, number>()
+  activities.forEach(activity => {
+    featureCounts.set(activity.event_type, (featureCounts.get(activity.event_type) || 0) + 1)
+  })
+
+  const totalEvents = activities.length
+  const topFeatures: FeatureUsage[] = Array.from(featureCounts.entries())
+    .map(([eventType, count]) => ({
+      eventType,
+      count,
+      percentage: totalEvents > 0 ? Math.round((count / totalEvents) * 1000) / 10 : 0,
+    }))
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 10)
+
+  // Count engagement levels
+  const engagementCounts = { high: 0, medium: 0, low: 0, dormant: 0 }
+  userEngagements.forEach(u => {
+    engagementCounts[u.engagementLevel]++
+  })
+
+  const totalUsers = rawData.profiles.length
+  const activeUsers = userEngagements.filter(u => u.totalEvents > 0).length
+
+  return {
+    totalEvents,
+    totalActiveUsers: activeUsers,
+    engagementRate: totalUsers > 0 ? Math.round((activeUsers / totalUsers) * 1000) / 10 : 0,
+    highEngagement: engagementCounts.high,
+    mediumEngagement: engagementCounts.medium,
+    lowEngagement: engagementCounts.low,
+    dormantUsers: engagementCounts.dormant,
+    topFeatures,
+    topUsers: userEngagements.filter(u => u.totalEvents > 0).slice(0, 10),
+    orgEngagement: orgEngagement.slice(0, 10),
+    dormantUsersList: userEngagements.filter(u => u.engagementLevel === 'dormant').slice(0, 20),
+  }
+}
