@@ -21,7 +21,7 @@ import {
   DateRange,
   ActivityEventDetail,
 } from '@/lib/supabase'
-import { Sidebar } from '@/components/Sidebar'
+import { Sidebar, MobileMenuButton } from '@/components/Sidebar'
 import { StatCard } from '@/components/StatCard'
 import { OrgCard, OrgCardSkeleton } from '@/components/OrgCard'
 import { OrgDetailView, OrgDetailSkeleton } from '@/components/OrgDetail'
@@ -97,6 +97,9 @@ function DashboardContent() {
   // Connection form state
   const [connectError, setConnectError] = useState('')
   const [connecting, setConnecting] = useState(false)
+
+  // Mobile menu state
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
 
   // Sidebar view from URL
   const sidebarView = (searchParams.get('view') as SidebarView) || 'dashboard'
@@ -587,15 +590,22 @@ function DashboardContent() {
         onLogout={handleLogout}
         activeView={sidebarView}
         connectionName={connection?.connection_name}
+        isOpen={mobileMenuOpen}
+        onClose={() => setMobileMenuOpen(false)}
       />
 
-      <div className="flex-1 p-8">
+      <div className="flex-1 p-4 md:p-6 lg:p-8 lg:ml-0 w-full">
         {/* Header */}
-        <div className="mb-6">
-          <p className="text-primary font-semibold text-sm uppercase tracking-wider mb-1">
-            {headerName}
-          </p>
-          <h1 className="text-3xl font-bold text-white">{getPageTitle()}</h1>
+        <div className="mb-6 flex items-start gap-4">
+          {/* Mobile menu button */}
+          <MobileMenuButton onClick={() => setMobileMenuOpen(true)} />
+
+          <div className="flex-1 min-w-0">
+            <p className="text-primary font-semibold text-sm uppercase tracking-wider mb-1">
+              {headerName}
+            </p>
+            <h1 className="text-2xl md:text-3xl font-bold text-white truncate">{getPageTitle()}</h1>
+          </div>
         </div>
 
         {/* Connections View */}
@@ -714,7 +724,7 @@ function DashboardContent() {
               {dataLoading ? (
                 /* Loading skeleton */
                 activeTab === 'organizations' ? (
-                  <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-6">
                     {[1, 2, 3, 4, 5, 6].map(i => (
                       <OrgCardSkeleton key={i} />
                     ))}
@@ -746,7 +756,7 @@ function DashboardContent() {
                       {orgView === 'grid' ? (
                         <>
                           {/* Stats Cards */}
-                          <div className="grid md:grid-cols-3 gap-6">
+                          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-6">
                             <StatCard
                               label="Organizations"
                               value={organizations.length}
@@ -789,7 +799,7 @@ function DashboardContent() {
                               </div>
                             </div>
                           ) : (
-                            <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
+                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-6">
                               {filteredOrgs.map((org, index) => (
                                 <div
                                   key={org.id}

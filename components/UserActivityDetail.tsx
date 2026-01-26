@@ -255,15 +255,15 @@ export default function UserActivityDetail({
         onClick={onClose}
       />
 
-      {/* Slide-out Panel */}
-      <div className="fixed inset-y-0 right-0 w-full max-w-lg bg-dark-card border-l border-dark-border shadow-2xl z-50 flex flex-col animate-slideInRight">
+      {/* Slide-out Panel - Full screen on mobile, slide-out on desktop */}
+      <div className="fixed inset-0 md:inset-y-0 md:left-auto md:right-0 md:w-full md:max-w-lg bg-dark-card md:border-l border-dark-border shadow-2xl z-50 flex flex-col animate-slideInRight">
         {/* Header */}
-        <div className="px-6 py-4 border-b border-dark-border bg-dark-surface">
+        <div className="px-4 md:px-6 py-4 border-b border-dark-border bg-dark-surface safe-area-inset-top">
           <div className="flex items-start justify-between">
             <div className="flex-1 min-w-0">
-              <h2 className="text-xl font-bold text-white truncate">{user.name}</h2>
+              <h2 className="text-lg md:text-xl font-bold text-white truncate">{user.name}</h2>
               <p className="text-gray-400 text-sm truncate">{user.email}</p>
-              <div className="flex items-center gap-3 mt-2">
+              <div className="flex flex-wrap items-center gap-2 md:gap-3 mt-2">
                 <span className="px-2 py-1 bg-primary/20 text-primary text-xs rounded-full font-medium">
                   {user.totalEvents} events
                 </span>
@@ -276,10 +276,10 @@ export default function UserActivityDetail({
             </div>
             <button
               onClick={onClose}
-              className="p-2 text-gray-400 hover:text-white hover:bg-dark-surface rounded-lg transition-colors ml-4"
+              className="p-2 text-gray-400 hover:text-white hover:bg-dark-surface rounded-lg transition-colors ml-2 min-h-[44px] min-w-[44px] flex items-center justify-center"
               aria-label="Close"
             >
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
               </svg>
             </button>
@@ -287,12 +287,12 @@ export default function UserActivityDetail({
         </div>
 
         {/* Filters & Actions */}
-        <div className="px-6 py-3 border-b border-dark-border bg-dark-surface/50 flex items-center justify-between gap-4">
+        <div className="px-4 md:px-6 py-3 border-b border-dark-border bg-dark-surface/50 flex flex-wrap items-center justify-between gap-2 md:gap-4">
           <div className="flex items-center gap-2">
             <select
               value={filterType}
               onChange={(e) => setFilterType(e.target.value)}
-              className="bg-dark-card border border-dark-border text-white text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-primary"
+              className="bg-dark-card border border-dark-border text-white text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-primary min-h-[44px]"
             >
               <option value="all">All Events</option>
               {eventTypes.map(type => (
@@ -308,7 +308,7 @@ export default function UserActivityDetail({
           <button
             onClick={handleExport}
             disabled={filteredActivities.length === 0}
-            className="px-3 py-2 bg-primary/20 text-primary text-sm rounded-lg hover:bg-primary/30 transition-colors flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+            className="px-3 py-2 bg-primary/20 text-primary text-sm rounded-lg hover:bg-primary/30 transition-colors flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed min-h-[44px]"
           >
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />

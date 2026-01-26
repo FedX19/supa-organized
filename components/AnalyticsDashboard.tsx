@@ -206,15 +206,15 @@ CREATE INDEX idx_user_activity_timestamp
 
   // Main analytics view
   return (
-    <div className="space-y-6 animate-fadeIn">
+    <div className="space-y-4 md:space-y-6 animate-fadeIn">
       {/* Header with Date Range */}
-      <div className="flex items-center justify-between">
-        <div className="flex gap-2">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div className="flex gap-2 overflow-x-auto pb-2 sm:pb-0 -mx-4 px-4 sm:mx-0 sm:px-0">
           {(['overview', 'users', 'orgs', 'features', 'dormant'] as const).map((section) => (
             <button
               key={section}
               onClick={() => setActiveSection(section)}
-              className={`px-4 py-2 rounded-lg font-medium capitalize transition-colors ${
+              className={`px-3 md:px-4 py-2 rounded-lg font-medium capitalize transition-colors whitespace-nowrap min-h-[44px] text-sm md:text-base ${
                 activeSection === section
                   ? 'bg-primary text-black'
                   : 'bg-dark-card border border-dark-border text-gray-400 hover:text-white'
@@ -334,7 +334,7 @@ function OverviewSection({ summary }: { summary: AnalyticsSummary }) {
       </div>
 
       {/* Engagement Breakdown */}
-      <div className="grid md:grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6">
         <div className="bg-dark-card border border-dark-border rounded-lg p-6">
           <h3 className="text-lg font-semibold text-white mb-4">Engagement Breakdown</h3>
           <div className="space-y-3">
@@ -685,7 +685,7 @@ function AnalyticsSkeleton() {
           <div key={i} className="bg-dark-card border border-dark-border rounded-lg p-4 h-24" />
         ))}
       </div>
-      <div className="grid md:grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6">
         <div className="bg-dark-card border border-dark-border rounded-lg h-64" />
         <div className="bg-dark-card border border-dark-border rounded-lg h-64" />
       </div>
