@@ -9,6 +9,7 @@ import {
   fetchOrganizationDetail,
   fetchRawDiagnosticData,
   fetchUserActivity,
+  fetchUserActivities,
   getIssueSummary,
   OrganizationCard,
   OrganizationDetail,
@@ -18,6 +19,7 @@ import {
   UserPermissionDiagnostic,
   AnalyticsData,
   DateRange,
+  ActivityEventDetail,
 } from '@/lib/supabase'
 import { Sidebar } from '@/components/Sidebar'
 import { StatCard } from '@/components/StatCard'
@@ -432,6 +434,34 @@ function DashboardContent() {
     }
   }
 
+  // Handle fetch user activities for activity detail panel
+  const handleFetchUserActivities = useCallback(async (profileId: string): Promise<ActivityEventDetail[]> => {
+    if (!connection) return []
+
+    try {
+      const token = await getValidAccessToken()
+      if (!token) return []
+
+      const response = await fetch('/api/decrypt', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify({ encrypted: connection.encrypted_key }),
+      })
+
+      if (!response.ok) return []
+
+      const { decrypted } = await response.json()
+      const customerClient = createCustomerSupabaseClient(connection.supabase_url, decrypted)
+      return await fetchUserActivities(customerClient, profileId)
+    } catch (error) {
+      console.error('Error fetching user activities:', error)
+      return []
+    }
+  }, [connection, getValidAccessToken])
+
   // Handle logout
   const handleLogout = async () => {
     const supabase = createSupabaseClient()
@@ -576,6 +606,7 @@ function DashboardContent() {
               dateRange={dateRange}
               onDateRangeChange={setDateRange}
               isLoading={analyticsLoading || dataLoading}
+              onFetchUserActivities={handleFetchUserActivities}
             />
           ) : (
             <div className="bg-dark-card border border-dark-border rounded-lg p-8 text-center">

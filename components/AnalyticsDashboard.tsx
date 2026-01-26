@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useCallback } from 'react'
 import {
   AnalyticsData,
   AnalyticsSummary,
@@ -10,6 +10,7 @@ import {
   UserEngagement,
   exportToCSV,
 } from '@/lib/supabase'
+import UserActivityDetail, { ActivityEvent } from '@/components/UserActivityDetail'
 
 interface AnalyticsDashboardProps {
   analyticsData: AnalyticsData
@@ -17,6 +18,7 @@ interface AnalyticsDashboardProps {
   dateRange: DateRange
   onDateRangeChange: (range: DateRange) => void
   isLoading: boolean
+  onFetchUserActivities?: (profileId: string) => Promise<ActivityEvent[]>
 }
 
 export default function AnalyticsDashboard({
@@ -25,8 +27,36 @@ export default function AnalyticsDashboard({
   dateRange,
   onDateRangeChange,
   isLoading,
+  onFetchUserActivities,
 }: AnalyticsDashboardProps) {
   const [activeSection, setActiveSection] = useState<'overview' | 'users' | 'orgs' | 'features' | 'dormant'>('overview')
+  const [selectedUser, setSelectedUser] = useState<UserEngagement | null>(null)
+  const [isDetailOpen, setIsDetailOpen] = useState(false)
+
+  const handleUserClick = useCallback((user: UserEngagement) => {
+    setSelectedUser(user)
+    setIsDetailOpen(true)
+  }, [])
+
+  const handleCloseDetail = useCallback(() => {
+    setIsDetailOpen(false)
+  }, [])
+
+  const handleFetchActivities = useCallback(async (profileId: string): Promise<ActivityEvent[]> => {
+    if (onFetchUserActivities) {
+      return onFetchUserActivities(profileId)
+    }
+    // Fallback: build from existing analytics data
+    return analyticsData.activities
+      .filter(a => a.profile_id === profileId)
+      .map(a => ({
+        id: a.id,
+        event_type: a.event_type,
+        timestamp: a.timestamp,
+        event_details: a.metadata as Record<string, unknown> | null,
+        organization_name: null,
+      }))
+  }, [onFetchUserActivities, analyticsData.activities])
 
   const summary = useMemo(() => {
     if (!analyticsData.hasTable || analyticsData.activities.length === 0) {
@@ -199,7 +229,7 @@ CREATE INDEX idx_user_activity_timestamp
 
           {/* Top Users Section */}
           {activeSection === 'users' && (
-            <UsersSection users={summary.topUsers} onExport={handleExportUsers} />
+            <UsersSection users={summary.topUsers} onExport={handleExportUsers} onUserClick={handleUserClick} />
           )}
 
           {/* Org Engagement Section */}
@@ -214,9 +244,19 @@ CREATE INDEX idx_user_activity_timestamp
 
           {/* Dormant Users Section */}
           {activeSection === 'dormant' && (
-            <DormantSection users={summary.dormantUsersList} onExport={handleExportDormant} />
+            <DormantSection users={summary.dormantUsersList} onExport={handleExportDormant} onUserClick={handleUserClick} />
           )}
         </>
+      )}
+
+      {/* User Activity Detail Panel */}
+      {selectedUser && (
+        <UserActivityDetail
+          user={selectedUser}
+          isOpen={isDetailOpen}
+          onClose={handleCloseDetail}
+          onFetchActivities={handleFetchActivities}
+        />
       )}
     </div>
   )
@@ -311,11 +351,14 @@ function OverviewSection({ summary }: { summary: AnalyticsSummary }) {
 }
 
 // Users Section
-function UsersSection({ users, onExport }: { users: UserEngagement[]; onExport: () => void }) {
+function UsersSection({ users, onExport, onUserClick }: { users: UserEngagement[]; onExport: () => void; onUserClick?: (user: UserEngagement) => void }) {
   return (
     <div className="bg-dark-card border border-dark-border rounded-lg overflow-hidden">
       <div className="px-4 py-3 border-b border-dark-border bg-dark-surface flex items-center justify-between">
-        <h3 className="font-medium text-white">Most Active Users</h3>
+        <div>
+          <h3 className="font-medium text-white">Most Active Users</h3>
+          <p className="text-xs text-gray-500 mt-0.5">Click a user to view activity timeline</p>
+        </div>
         <button
           onClick={onExport}
           className="px-3 py-1 bg-primary/20 text-primary text-sm rounded hover:bg-primary/30 transition-colors flex items-center gap-2"
@@ -338,9 +381,18 @@ function UsersSection({ users, onExport }: { users: UserEngagement[]; onExport: 
           </thead>
           <tbody className="divide-y divide-dark-border">
             {users.map((user) => (
-              <tr key={user.profileId} className="hover:bg-dark-surface">
+              <tr
+                key={user.profileId}
+                className="hover:bg-dark-surface cursor-pointer group transition-colors"
+                onClick={() => onUserClick?.(user)}
+              >
                 <td className="px-4 py-3">
-                  <div className="text-white font-medium">{user.name}</div>
+                  <div className="flex items-center gap-2">
+                    <div className="text-white font-medium group-hover:text-primary transition-colors">{user.name}</div>
+                    <svg className="w-4 h-4 text-gray-600 group-hover:text-primary opacity-0 group-hover:opacity-100 transition-all" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                    </svg>
+                  </div>
                   <div className="text-gray-500 text-sm">{user.email}</div>
                 </td>
                 <td className="px-4 py-3 text-right text-white">{user.totalEvents.toLocaleString()}</td>
@@ -428,7 +480,7 @@ function FeaturesSection({ features }: { features: AnalyticsSummary['topFeatures
 }
 
 // Dormant Section
-function DormantSection({ users, onExport }: { users: UserEngagement[]; onExport: () => void }) {
+function DormantSection({ users, onExport, onUserClick }: { users: UserEngagement[]; onExport: () => void; onUserClick?: (user: UserEngagement) => void }) {
   return (
     <div className="space-y-4">
       <div className="bg-gradient-to-r from-red-500/20 to-orange-500/20 border border-red-500/30 rounded-lg p-4 flex items-center gap-4">
@@ -453,6 +505,9 @@ function DormantSection({ users, onExport }: { users: UserEngagement[]; onExport
       </div>
 
       <div className="bg-dark-card border border-dark-border rounded-lg overflow-hidden">
+        <div className="px-4 py-2 border-b border-dark-border bg-dark-surface">
+          <p className="text-xs text-gray-500">Click a user to view activity timeline</p>
+        </div>
         <div className="overflow-x-auto">
           <table className="w-full">
             <thead>
@@ -463,9 +518,18 @@ function DormantSection({ users, onExport }: { users: UserEngagement[]; onExport
             </thead>
             <tbody className="divide-y divide-dark-border">
               {users.map((user) => (
-                <tr key={user.profileId} className="hover:bg-dark-surface">
+                <tr
+                  key={user.profileId}
+                  className="hover:bg-dark-surface cursor-pointer group transition-colors"
+                  onClick={() => onUserClick?.(user)}
+                >
                   <td className="px-4 py-3">
-                    <div className="text-white font-medium">{user.name}</div>
+                    <div className="flex items-center gap-2">
+                      <div className="text-white font-medium group-hover:text-primary transition-colors">{user.name}</div>
+                      <svg className="w-4 h-4 text-gray-600 group-hover:text-primary opacity-0 group-hover:opacity-100 transition-all" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                      </svg>
+                    </div>
                     <div className="text-gray-500 text-sm">{user.email}</div>
                   </td>
                   <td className="px-4 py-3 text-right text-gray-400 text-sm">

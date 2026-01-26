@@ -1186,6 +1186,84 @@ export async function fetchUserActivity(
   }
 }
 
+// Activity event detail interface
+export interface ActivityEventDetail {
+  id: string
+  event_type: string
+  timestamp: string
+  event_details?: Record<string, unknown> | null
+  organization_name?: string | null
+}
+
+// Fetch activities for a specific user
+export async function fetchUserActivities(
+  customerClient: SupabaseClient,
+  profileId: string
+): Promise<ActivityEventDetail[]> {
+  try {
+    // Try to join with organizations table for org names
+    const { data, error } = await customerClient
+      .from('user_activity')
+      .select(`
+        id,
+        event_type,
+        timestamp,
+        metadata,
+        organization_id,
+        organizations(name)
+      `)
+      .eq('profile_id', profileId)
+      .order('timestamp', { ascending: false })
+      .limit(500)
+
+    if (error) {
+      // If join fails, try without join
+      const { data: fallbackData, error: fallbackError } = await customerClient
+        .from('user_activity')
+        .select('id, event_type, timestamp, metadata, organization_id')
+        .eq('profile_id', profileId)
+        .order('timestamp', { ascending: false })
+        .limit(500)
+
+      if (fallbackError) {
+        console.error('Error fetching user activities:', fallbackError)
+        return []
+      }
+
+      return (fallbackData || []).map(item => ({
+        id: item.id,
+        event_type: item.event_type,
+        timestamp: item.timestamp,
+        event_details: item.metadata as Record<string, unknown> | null,
+        organization_name: null,
+      }))
+    }
+
+    return (data || []).map(item => {
+      // Handle both single object and array cases from Supabase join
+      const orgs = item.organizations as unknown
+      let orgName: string | null = null
+      if (orgs) {
+        if (Array.isArray(orgs) && orgs.length > 0) {
+          orgName = (orgs[0] as { name: string }).name
+        } else if (typeof orgs === 'object' && 'name' in (orgs as object)) {
+          orgName = (orgs as { name: string }).name
+        }
+      }
+      return {
+        id: item.id,
+        event_type: item.event_type,
+        timestamp: item.timestamp,
+        event_details: item.metadata as Record<string, unknown> | null,
+        organization_name: orgName,
+      }
+    })
+  } catch (err) {
+    console.error('Error fetching user activities:', err)
+    return []
+  }
+}
+
 // Calculate engagement level based on activity
 function calculateEngagementLevel(
   eventCount: number,

@@ -9,6 +9,31 @@ interface SidebarProps {
   connectionName?: string
 }
 
+// Full logo component for desktop
+function FullLogo() {
+  return (
+    <svg width="180" height="45" viewBox="0 0 240 60" xmlns="http://www.w3.org/2000/svg" className="hidden sm:block">
+      <rect x="4" y="10" width="16" height="20" rx="2" fill="#f59e0b" opacity="0.3"/>
+      <rect x="12" y="15" width="16" height="20" rx="2" fill="#f59e0b" opacity="0.6"/>
+      <rect x="20" y="20" width="16" height="20" rx="2" fill="#f59e0b"/>
+      <circle cx="28" cy="30" r="3" fill="white"/>
+      <text x="50" y="38" fontFamily="Arial, sans-serif" fontSize="24" fontWeight="bold" fill="white">SupaOrganized</text>
+    </svg>
+  )
+}
+
+// Icon-only logo for mobile/narrow screens
+function IconLogo() {
+  return (
+    <svg width="40" height="40" viewBox="0 0 60 60" xmlns="http://www.w3.org/2000/svg" className="sm:hidden">
+      <rect x="8" y="15" width="20" height="25" rx="3" fill="#f59e0b" opacity="0.3"/>
+      <rect x="16" y="20" width="20" height="25" rx="3" fill="#f59e0b" opacity="0.6"/>
+      <rect x="24" y="25" width="20" height="25" rx="3" fill="#f59e0b"/>
+      <circle cx="34" cy="37.5" r="4" fill="white"/>
+    </svg>
+  )
+}
+
 export function Sidebar({ userEmail, onLogout, activeView, connectionName }: SidebarProps) {
   const navItems = [
     {
@@ -43,14 +68,10 @@ export function Sidebar({ userEmail, onLogout, activeView, connectionName }: Sid
   return (
     <div className="w-64 bg-sidebar min-h-screen flex flex-col">
       {/* Logo */}
-      <div className="p-6">
-        <Link href="/dashboard" className="flex items-center gap-2">
-          <div className="w-8 h-8 bg-primary rounded-lg flex items-center justify-center">
-            <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
-            </svg>
-          </div>
-          <span className="text-white font-bold text-lg">SupaOrganized</span>
+      <div className="p-4 sm:p-6">
+        <Link href="/dashboard" className="flex items-center justify-center sm:justify-start transition-transform hover:scale-[1.02]">
+          <FullLogo />
+          <IconLogo />
         </Link>
       </div>
 
