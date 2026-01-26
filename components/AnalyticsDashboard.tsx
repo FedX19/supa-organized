@@ -43,11 +43,23 @@ export default function AnalyticsDashboard({
   }, [])
 
   const handleFetchActivities = useCallback(async (profileId: string): Promise<ActivityEvent[]> => {
+    // First, try to get activities from the dedicated API if available
     if (onFetchUserActivities) {
-      return onFetchUserActivities(profileId)
+      try {
+        const apiActivities = await onFetchUserActivities(profileId)
+        // If API returned results, use them
+        if (apiActivities && apiActivities.length > 0) {
+          console.log(`Fetched ${apiActivities.length} activities from API for user ${profileId}`)
+          return apiActivities
+        }
+      } catch (err) {
+        console.error('API fetch failed, falling back to local data:', err)
+      }
     }
-    // Fallback: build from existing analytics data
-    return analyticsData.activities
+
+    // Fallback: use existing analytics data (we know this works since header shows event count)
+    console.log(`Using fallback: filtering from ${analyticsData.activities.length} total activities for user ${profileId}`)
+    const userActivities = analyticsData.activities
       .filter(a => a.profile_id === profileId)
       .map(a => ({
         id: a.id,
@@ -56,6 +68,8 @@ export default function AnalyticsDashboard({
         event_details: a.metadata as Record<string, unknown> | null,
         organization_name: null,
       }))
+    console.log(`Found ${userActivities.length} activities for user ${profileId} from local data`)
+    return userActivities
   }, [onFetchUserActivities, analyticsData.activities])
 
   const summary = useMemo(() => {

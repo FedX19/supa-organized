@@ -436,11 +436,19 @@ function DashboardContent() {
 
   // Handle fetch user activities for activity detail panel
   const handleFetchUserActivities = useCallback(async (profileId: string): Promise<ActivityEventDetail[]> => {
-    if (!connection) return []
+    console.log('handleFetchUserActivities called for profileId:', profileId)
+
+    if (!connection) {
+      console.log('No connection available, returning empty')
+      return []
+    }
 
     try {
       const token = await getValidAccessToken()
-      if (!token) return []
+      if (!token) {
+        console.log('No valid token, returning empty')
+        return []
+      }
 
       const response = await fetch('/api/decrypt', {
         method: 'POST',
@@ -451,11 +459,16 @@ function DashboardContent() {
         body: JSON.stringify({ encrypted: connection.encrypted_key }),
       })
 
-      if (!response.ok) return []
+      if (!response.ok) {
+        console.log('Decrypt API failed with status:', response.status)
+        return []
+      }
 
       const { decrypted } = await response.json()
       const customerClient = createCustomerSupabaseClient(connection.supabase_url, decrypted)
-      return await fetchUserActivities(customerClient, profileId)
+      const activities = await fetchUserActivities(customerClient, profileId)
+      console.log('fetchUserActivities returned:', activities.length, 'activities')
+      return activities
     } catch (error) {
       console.error('Error fetching user activities:', error)
       return []

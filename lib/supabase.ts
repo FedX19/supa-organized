@@ -1200,6 +1200,8 @@ export async function fetchUserActivities(
   customerClient: SupabaseClient,
   profileId: string
 ): Promise<ActivityEventDetail[]> {
+  console.log('fetchUserActivities: querying for profile_id:', profileId)
+
   try {
     // Try to join with organizations table for org names
     const { data, error } = await customerClient
@@ -1216,7 +1218,14 @@ export async function fetchUserActivities(
       .order('timestamp', { ascending: false })
       .limit(500)
 
+    console.log('fetchUserActivities: query result -', {
+      hasData: !!data,
+      dataLength: data?.length || 0,
+      error: error?.message || null
+    })
+
     if (error) {
+      console.log('fetchUserActivities: join failed, trying without join')
       // If join fails, try without join
       const { data: fallbackData, error: fallbackError } = await customerClient
         .from('user_activity')
@@ -1224,6 +1233,12 @@ export async function fetchUserActivities(
         .eq('profile_id', profileId)
         .order('timestamp', { ascending: false })
         .limit(500)
+
+      console.log('fetchUserActivities: fallback result -', {
+        hasData: !!fallbackData,
+        dataLength: fallbackData?.length || 0,
+        error: fallbackError?.message || null
+      })
 
       if (fallbackError) {
         console.error('Error fetching user activities:', fallbackError)
@@ -1239,7 +1254,7 @@ export async function fetchUserActivities(
       }))
     }
 
-    return (data || []).map(item => {
+    const result = (data || []).map(item => {
       // Handle both single object and array cases from Supabase join
       const orgs = item.organizations as unknown
       let orgName: string | null = null
@@ -1258,6 +1273,9 @@ export async function fetchUserActivities(
         organization_name: orgName,
       }
     })
+
+    console.log('fetchUserActivities: returning', result.length, 'activities')
+    return result
   } catch (err) {
     console.error('Error fetching user activities:', err)
     return []
