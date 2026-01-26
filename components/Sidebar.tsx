@@ -8,9 +8,11 @@ interface SidebarProps {
   onLogout: () => void
   activeView?: string
   connectionName?: string
+  isOpen?: boolean
+  onClose?: () => void
 }
 
-export function Sidebar({ userEmail, onLogout, activeView, connectionName }: SidebarProps) {
+export function Sidebar({ userEmail, onLogout, activeView, connectionName, isOpen = false, onClose }: SidebarProps) {
   const navItems = [
     {
       name: 'Dashboard',
@@ -41,71 +43,130 @@ export function Sidebar({ userEmail, onLogout, activeView, connectionName }: Sid
     },
   ]
 
-  return (
-    <div className="w-64 bg-sidebar min-h-screen flex flex-col">
-      {/* Logo */}
-      <div className="p-4 sm:p-6">
-        <Link href="/dashboard" className="flex items-center justify-center sm:justify-start transition-transform hover:scale-[1.02]">
-          <FullLogo className="hidden sm:block w-44 h-11" />
-          <IconLogo className="block sm:hidden w-10 h-10" />
-        </Link>
-      </div>
+  const handleNavClick = () => {
+    // Close mobile menu when navigating
+    if (onClose) {
+      onClose()
+    }
+  }
 
-      {/* Connection indicator */}
-      {connectionName && (
-        <div className="px-4 mb-4">
-          <div className="bg-dark-surface border border-dark-border rounded-lg px-3 py-2">
-            <div className="flex items-center gap-2">
-              <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
-              <span className="text-sm text-gray-400 truncate">{connectionName}</span>
+  return (
+    <>
+      {/* Mobile backdrop */}
+      {isOpen && (
+        <div
+          className="fixed inset-0 bg-black/60 backdrop-blur-sm z-40 lg:hidden"
+          onClick={onClose}
+        />
+      )}
+
+      {/* Sidebar */}
+      <div
+        className={`
+          fixed lg:static inset-y-0 left-0 z-50
+          w-64 bg-sidebar min-h-screen flex flex-col
+          transform transition-transform duration-300 ease-in-out
+          ${isOpen ? 'translate-x-0' : '-translate-x-full'}
+          lg:translate-x-0
+        `}
+      >
+        {/* Mobile close button */}
+        <button
+          onClick={onClose}
+          className="absolute top-4 right-4 p-2 text-slate-400 hover:text-white lg:hidden"
+          aria-label="Close menu"
+        >
+          <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+          </svg>
+        </button>
+
+        {/* Logo */}
+        <div className="p-6">
+          <Link
+            href="/dashboard"
+            className="flex items-center transition-transform hover:scale-[1.02]"
+            onClick={handleNavClick}
+          >
+            <FullLogo className="w-44 h-11" />
+          </Link>
+        </div>
+
+        {/* Connection indicator */}
+        {connectionName && (
+          <div className="px-4 mb-4">
+            <div className="bg-dark-surface border border-dark-border rounded-lg px-3 py-2">
+              <div className="flex items-center gap-2">
+                <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
+                <span className="text-sm text-gray-400 truncate">{connectionName}</span>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Navigation */}
+        <nav className="flex-1 px-4">
+          <ul className="space-y-1">
+            {navItems.map((item) => {
+              const isActive = activeView === item.view || (!activeView && item.view === 'dashboard')
+              return (
+                <li key={item.name}>
+                  <Link
+                    href={`/dashboard${item.view !== 'dashboard' ? `?view=${item.view}` : ''}`}
+                    onClick={handleNavClick}
+                    className={`flex items-center gap-3 px-4 py-3 rounded-lg transition-colors min-h-[48px] ${
+                      isActive
+                        ? 'bg-primary/10 text-primary'
+                        : 'text-slate-400 hover:bg-slate-800 hover:text-slate-300'
+                    }`}
+                  >
+                    {item.icon}
+                    <span className="font-medium">{item.name}</span>
+                  </Link>
+                </li>
+              )
+            })}
+          </ul>
+        </nav>
+
+        {/* User profile */}
+        <div className="p-4 border-t border-slate-700">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 bg-slate-700 rounded-full flex items-center justify-center flex-shrink-0">
+              <span className="text-slate-300 font-medium text-sm">
+                {userEmail.charAt(0).toUpperCase()}
+              </span>
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm text-white truncate">{userEmail}</p>
+              <button
+                onClick={() => {
+                  onLogout()
+                  if (onClose) onClose()
+                }}
+                className="text-xs text-slate-400 hover:text-primary transition-colors min-h-[32px]"
+              >
+                Log out
+              </button>
             </div>
           </div>
         </div>
-      )}
-
-      {/* Navigation */}
-      <nav className="flex-1 px-4">
-        <ul className="space-y-1">
-          {navItems.map((item) => {
-            const isActive = activeView === item.view || (!activeView && item.view === 'dashboard')
-            return (
-              <li key={item.name}>
-                <Link
-                  href={`/dashboard${item.view !== 'dashboard' ? `?view=${item.view}` : ''}`}
-                  className={`flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${
-                    isActive
-                      ? 'bg-primary/10 text-primary'
-                      : 'text-slate-400 hover:bg-slate-800 hover:text-slate-300'
-                  }`}
-                >
-                  {item.icon}
-                  <span className="font-medium">{item.name}</span>
-                </Link>
-              </li>
-            )
-          })}
-        </ul>
-      </nav>
-
-      {/* User profile */}
-      <div className="p-4 border-t border-slate-700">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 bg-slate-700 rounded-full flex items-center justify-center">
-            <span className="text-slate-300 font-medium text-sm">
-              {userEmail.charAt(0).toUpperCase()}
-            </span>
-          </div>
-          <div className="flex-1 min-w-0">
-            <p className="text-sm text-white truncate">{userEmail}</p>
-            <button
-              onClick={onLogout}
-              className="text-xs text-slate-400 hover:text-primary transition-colors"
-            >
-              Log out
-            </button>
-          </div>
-        </div>
       </div>
-    </div>
+    </>
+  )
+}
+
+// Hamburger menu button component
+export function MobileMenuButton({ onClick }: { onClick: () => void }) {
+  return (
+    <button
+      onClick={onClick}
+      className="lg:hidden p-2 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition-colors"
+      aria-label="Open menu"
+    >
+      <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+      </svg>
+    </button>
   )
 }

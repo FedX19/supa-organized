@@ -8,8 +8,9 @@ export const metadata: Metadata = {
   icons: {
     icon: [
       { url: '/favicon.svg', type: 'image/svg+xml' },
+      { url: '/icon-192.png', sizes: '192x192', type: 'image/png' },
     ],
-    apple: '/favicon.svg',
+    apple: '/apple-touch-icon.png',
   },
   appleWebApp: {
     capable: true,
@@ -27,8 +28,8 @@ export const metadata: Metadata = {
 export const viewport: Viewport = {
   width: 'device-width',
   initialScale: 1,
-  maximumScale: 1,
-  userScalable: false,
+  maximumScale: 5,
+  userScalable: true,
   themeColor: '#f59e0b',
 }
 
@@ -44,8 +45,9 @@ export default function RootLayout({
         <meta name="apple-mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
         <meta name="apple-mobile-web-app-title" content="SupaOrganized" />
+        <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
       </head>
-      <body className="bg-background min-h-screen antialiased">
+      <body className="bg-background min-h-screen antialiased overflow-x-hidden">
         {children}
       </body>
     </html>
