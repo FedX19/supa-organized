@@ -1433,3 +1433,383 @@ export function generateAnalyticsSummary(
     dormantUsersList: userEngagements.filter(u => u.engagementLevel === 'dormant').slice(0, 20),
   }
 }
+
+// ========== REVENUE TYPES ==========
+
+export type CustomerType = 'individual' | 'league'
+export type CustomerStatus = 'active' | 'cancelled' | 'paused'
+export type SubscriptionStatus = 'active' | 'cancelled' | 'past_due' | 'paused'
+export type PaymentStatus = 'succeeded' | 'pending' | 'failed' | 'refunded'
+export type CancellationReason = 'too_expensive' | 'not_using' | 'switching' | 'temporary' | 'other' | 'unknown'
+
+export interface RevenueCustomer {
+  id: string
+  email: string
+  full_name: string | null
+  customer_type: CustomerType
+  organization_name: string | null
+  status: CustomerStatus
+  created_at: string
+}
+
+export interface RevenueSubscription {
+  id: string
+  customer_id: string
+  plan_type: 'individual_monthly' | 'league_seasonal'
+  amount_cents: number
+  status: SubscriptionStatus
+  current_period_start: string | null
+  current_period_end: string | null
+  cancelled_at: string | null
+  cancellation_reason: string | null
+}
+
+export interface RevenuePayment {
+  id: string
+  customer_id: string
+  subscription_id: string | null
+  amount_cents: number
+  status: PaymentStatus
+  payment_method: string | null
+  payment_date: string
+  notes: string | null
+}
+
+export interface RevenueCancellation {
+  id: string
+  customer_id: string
+  cancelled_at: string
+  reason: string | null
+  reason_category: CancellationReason | null
+  monthly_revenue_lost_cents: number | null
+  customer_lifetime_days: number | null
+  total_revenue_cents: number | null
+  feedback: string | null
+}
+
+export interface RevenueSnapshot {
+  id: string
+  snapshot_date: string
+  mrr_cents: number
+  arr_cents: number
+  total_customers: number
+  individual_customers: number
+  league_customers: number
+  new_customers: number
+  churned_customers: number
+  churn_rate: number | null
+  individual_revenue_cents: number
+  league_revenue_cents: number
+}
+
+export interface RevenueData {
+  customers: RevenueCustomer[]
+  subscriptions: RevenueSubscription[]
+  payments: RevenuePayment[]
+  cancellations: RevenueCancellation[]
+  snapshots: RevenueSnapshot[]
+  hasData: boolean
+}
+
+export interface RevenueMetrics {
+  mrr: number // Monthly Recurring Revenue in dollars
+  arr: number // Annual Recurring Revenue in dollars
+  totalRevenue: number // Total lifetime revenue
+  activeSubscriptions: number
+  individualCount: number
+  leagueCount: number
+  churnedThisMonth: number
+  churnRate: number // Percentage
+  mrrGrowth: number // Percentage change from last month
+  userGrowth: number // Percentage change from last month
+}
+
+export interface PaymentDue {
+  customer: RevenueCustomer
+  subscription: RevenueSubscription
+  lastPaymentDate: Date | null
+  daysSincePayment: number
+  status: 'current' | 'at_risk' | 'overdue'
+  amountDue: number
+  dueDate: Date | null
+}
+
+export type Season = 'spring' | 'fall'
+
+// ========== REVENUE HELPER FUNCTIONS ==========
+
+export function getCurrentSeason(): Season {
+  const now = new Date()
+  const month = now.getMonth() + 1 // JS months are 0-indexed
+  const day = now.getDate()
+
+  // Spring: Feb 15 - Aug 14
+  // Fall: Aug 15 - Feb 14
+  if ((month > 2 || (month === 2 && day >= 15)) &&
+      (month < 8 || (month === 8 && day < 15))) {
+    return 'spring'
+  }
+  return 'fall'
+}
+
+export function getNextSeasonDate(): Date {
+  const now = new Date()
+  const month = now.getMonth() + 1
+  const day = now.getDate()
+  const year = now.getFullYear()
+
+  // If before Feb 15, next payment is Feb 15 this year
+  if (month < 2 || (month === 2 && day < 15)) {
+    return new Date(year, 1, 15) // Feb 15
+  }
+  // If before Aug 15, next payment is Aug 15 this year
+  if (month < 8 || (month === 8 && day < 15)) {
+    return new Date(year, 7, 15) // Aug 15
+  }
+  // Otherwise next payment is Feb 15 next year
+  return new Date(year + 1, 1, 15)
+}
+
+export function formatCurrency(cents: number): string {
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: 'USD',
+  }).format(cents / 100)
+}
+
+export function calculateRevenueMetrics(data: RevenueData): RevenueMetrics {
+  const now = new Date()
+  const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000)
+  const sixtyDaysAgo = new Date(now.getTime() - 60 * 24 * 60 * 60 * 1000)
+
+  // Active subscriptions
+  const activeSubscriptions = data.subscriptions.filter(s => s.status === 'active')
+
+  // Calculate MRR
+  let mrrCents = 0
+  activeSubscriptions.forEach(sub => {
+    if (sub.plan_type === 'individual_monthly') {
+      mrrCents += sub.amount_cents
+    } else if (sub.plan_type === 'league_seasonal') {
+      // League seasonal is $200/season (2 seasons/year), so MRR = $200/6 = ~$33.33
+      mrrCents += Math.round(sub.amount_cents / 6)
+    }
+  })
+
+  // Calculate ARR
+  const arrCents = mrrCents * 12
+
+  // Total lifetime revenue from all succeeded payments
+  const totalRevenueCents = data.payments
+    .filter(p => p.status === 'succeeded')
+    .reduce((sum, p) => sum + p.amount_cents, 0)
+
+  // Count by type
+  const activeCustomers = data.customers.filter(c => c.status === 'active')
+  const individualCount = activeCustomers.filter(c => c.customer_type === 'individual').length
+  const leagueCount = activeCustomers.filter(c => c.customer_type === 'league').length
+
+  // Churned this month
+  const churnedThisMonth = data.cancellations.filter(c => {
+    const cancelDate = new Date(c.cancelled_at)
+    return cancelDate >= thirtyDaysAgo
+  }).length
+
+  // Churn rate (churned / total at start of period)
+  const totalAtStartOfMonth = activeCustomers.length + churnedThisMonth
+  const churnRate = totalAtStartOfMonth > 0
+    ? Math.round((churnedThisMonth / totalAtStartOfMonth) * 1000) / 10
+    : 0
+
+  // MRR growth - compare to 30-60 days ago
+  const lastMonthSnapshot = data.snapshots.find(s => {
+    const date = new Date(s.snapshot_date)
+    return date >= sixtyDaysAgo && date < thirtyDaysAgo
+  })
+  const lastMonthMrr = lastMonthSnapshot?.mrr_cents || mrrCents
+  const mrrGrowth = lastMonthMrr > 0
+    ? Math.round(((mrrCents - lastMonthMrr) / lastMonthMrr) * 1000) / 10
+    : 0
+
+  // User growth
+  const lastMonthCustomers = lastMonthSnapshot?.total_customers || activeCustomers.length
+  const userGrowth = lastMonthCustomers > 0
+    ? Math.round(((activeCustomers.length - lastMonthCustomers) / lastMonthCustomers) * 1000) / 10
+    : 0
+
+  return {
+    mrr: mrrCents / 100,
+    arr: arrCents / 100,
+    totalRevenue: totalRevenueCents / 100,
+    activeSubscriptions: activeSubscriptions.length,
+    individualCount,
+    leagueCount,
+    churnedThisMonth,
+    churnRate,
+    mrrGrowth,
+    userGrowth,
+  }
+}
+
+export function getPaymentsDue(data: RevenueData): PaymentDue[] {
+  const now = new Date()
+  const paymentsDue: PaymentDue[] = []
+
+  // Get active customers with their subscriptions
+  const activeCustomers = data.customers.filter(c => c.status === 'active')
+
+  activeCustomers.forEach(customer => {
+    const subscription = data.subscriptions.find(
+      s => s.customer_id === customer.id && s.status === 'active'
+    )
+    if (!subscription) return
+
+    // Find last payment for this customer
+    const customerPayments = data.payments
+      .filter(p => p.customer_id === customer.id && p.status === 'succeeded')
+      .sort((a, b) => new Date(b.payment_date).getTime() - new Date(a.payment_date).getTime())
+
+    const lastPayment = customerPayments[0]
+    const lastPaymentDate = lastPayment ? new Date(lastPayment.payment_date) : null
+    const daysSincePayment = lastPaymentDate
+      ? Math.floor((now.getTime() - lastPaymentDate.getTime()) / (24 * 60 * 60 * 1000))
+      : 999
+
+    let status: 'current' | 'at_risk' | 'overdue'
+    let dueDate: Date | null = null
+
+    if (subscription.plan_type === 'individual_monthly') {
+      // Individual: due 30 days after last payment
+      dueDate = lastPaymentDate ? new Date(lastPaymentDate.getTime() + 30 * 24 * 60 * 60 * 1000) : null
+
+      if (daysSincePayment <= 30) {
+        status = 'current'
+      } else if (daysSincePayment <= 35) {
+        status = 'at_risk'
+      } else {
+        status = 'overdue'
+      }
+    } else {
+      // League: due Feb 15 or Aug 15
+      dueDate = getNextSeasonDate()
+      const daysUntilDue = Math.floor((dueDate.getTime() - now.getTime()) / (24 * 60 * 60 * 1000))
+
+      if (daysUntilDue > 30) {
+        status = 'current'
+      } else if (daysUntilDue > 0) {
+        status = 'at_risk'
+      } else {
+        status = 'overdue'
+      }
+    }
+
+    paymentsDue.push({
+      customer,
+      subscription,
+      lastPaymentDate,
+      daysSincePayment,
+      status,
+      amountDue: subscription.amount_cents / 100,
+      dueDate,
+    })
+  })
+
+  // Sort: overdue first, then at_risk, then by days since payment
+  return paymentsDue.sort((a, b) => {
+    const statusOrder = { overdue: 0, at_risk: 1, current: 2 }
+    if (statusOrder[a.status] !== statusOrder[b.status]) {
+      return statusOrder[a.status] - statusOrder[b.status]
+    }
+    return b.daysSincePayment - a.daysSincePayment
+  })
+}
+
+// Generate dummy/test revenue data
+export function generateDummyRevenueData(): RevenueData {
+  const now = new Date()
+
+  // Dummy customers
+  const customers: RevenueCustomer[] = [
+    { id: '1', email: 'john@example.com', full_name: 'John Smith', customer_type: 'individual', organization_name: null, status: 'active', created_at: new Date(now.getTime() - 180 * 24 * 60 * 60 * 1000).toISOString() },
+    { id: '2', email: 'jane@example.com', full_name: 'Jane Doe', customer_type: 'individual', organization_name: null, status: 'active', created_at: new Date(now.getTime() - 120 * 24 * 60 * 60 * 1000).toISOString() },
+    { id: '3', email: 'mike@example.com', full_name: 'Mike Johnson', customer_type: 'individual', organization_name: null, status: 'active', created_at: new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000).toISOString() },
+    { id: '4', email: 'sarah@example.com', full_name: 'Sarah Wilson', customer_type: 'individual', organization_name: null, status: 'active', created_at: new Date(now.getTime() - 60 * 24 * 60 * 60 * 1000).toISOString() },
+    { id: '5', email: 'bob@example.com', full_name: 'Bob Brown', customer_type: 'individual', organization_name: null, status: 'cancelled', created_at: new Date(now.getTime() - 150 * 24 * 60 * 60 * 1000).toISOString() },
+    { id: '6', email: 'coach.tom@league.com', full_name: 'Coach Tom', customer_type: 'league', organization_name: 'Eastside Youth Soccer', status: 'active', created_at: new Date(now.getTime() - 240 * 24 * 60 * 60 * 1000).toISOString() },
+    { id: '7', email: 'coach.lisa@league.com', full_name: 'Coach Lisa', customer_type: 'league', organization_name: 'Downtown Basketball Club', status: 'active', created_at: new Date(now.getTime() - 180 * 24 * 60 * 60 * 1000).toISOString() },
+    { id: '8', email: 'coach.david@league.com', full_name: 'Coach David', customer_type: 'league', organization_name: 'Northside Little League', status: 'active', created_at: new Date(now.getTime() - 120 * 24 * 60 * 60 * 1000).toISOString() },
+    { id: '9', email: 'emily@example.com', full_name: 'Emily Chen', customer_type: 'individual', organization_name: null, status: 'active', created_at: new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString() },
+    { id: '10', email: 'alex@example.com', full_name: 'Alex Rivera', customer_type: 'individual', organization_name: null, status: 'active', created_at: new Date(now.getTime() - 15 * 24 * 60 * 60 * 1000).toISOString() },
+  ]
+
+  // Dummy subscriptions
+  const subscriptions: RevenueSubscription[] = [
+    { id: 's1', customer_id: '1', plan_type: 'individual_monthly', amount_cents: 2000, status: 'active', current_period_start: new Date(now.getTime() - 5 * 24 * 60 * 60 * 1000).toISOString(), current_period_end: new Date(now.getTime() + 25 * 24 * 60 * 60 * 1000).toISOString(), cancelled_at: null, cancellation_reason: null },
+    { id: 's2', customer_id: '2', plan_type: 'individual_monthly', amount_cents: 2000, status: 'active', current_period_start: new Date(now.getTime() - 10 * 24 * 60 * 60 * 1000).toISOString(), current_period_end: new Date(now.getTime() + 20 * 24 * 60 * 60 * 1000).toISOString(), cancelled_at: null, cancellation_reason: null },
+    { id: 's3', customer_id: '3', plan_type: 'individual_monthly', amount_cents: 2000, status: 'active', current_period_start: new Date(now.getTime() - 25 * 24 * 60 * 60 * 1000).toISOString(), current_period_end: new Date(now.getTime() + 5 * 24 * 60 * 60 * 1000).toISOString(), cancelled_at: null, cancellation_reason: null },
+    { id: 's4', customer_id: '4', plan_type: 'individual_monthly', amount_cents: 2000, status: 'active', current_period_start: new Date(now.getTime() - 40 * 24 * 60 * 60 * 1000).toISOString(), current_period_end: new Date(now.getTime() - 10 * 24 * 60 * 60 * 1000).toISOString(), cancelled_at: null, cancellation_reason: null },
+    { id: 's5', customer_id: '5', plan_type: 'individual_monthly', amount_cents: 2000, status: 'cancelled', current_period_start: new Date(now.getTime() - 60 * 24 * 60 * 60 * 1000).toISOString(), current_period_end: new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString(), cancelled_at: new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString(), cancellation_reason: 'Too expensive' },
+    { id: 's6', customer_id: '6', plan_type: 'league_seasonal', amount_cents: 20000, status: 'active', current_period_start: '2024-08-15', current_period_end: '2025-02-14', cancelled_at: null, cancellation_reason: null },
+    { id: 's7', customer_id: '7', plan_type: 'league_seasonal', amount_cents: 20000, status: 'active', current_period_start: '2024-08-15', current_period_end: '2025-02-14', cancelled_at: null, cancellation_reason: null },
+    { id: 's8', customer_id: '8', plan_type: 'league_seasonal', amount_cents: 20000, status: 'active', current_period_start: '2024-08-15', current_period_end: '2025-02-14', cancelled_at: null, cancellation_reason: null },
+    { id: 's9', customer_id: '9', plan_type: 'individual_monthly', amount_cents: 2000, status: 'active', current_period_start: new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString(), current_period_end: now.toISOString(), cancelled_at: null, cancellation_reason: null },
+    { id: 's10', customer_id: '10', plan_type: 'individual_monthly', amount_cents: 2000, status: 'active', current_period_start: new Date(now.getTime() - 15 * 24 * 60 * 60 * 1000).toISOString(), current_period_end: new Date(now.getTime() + 15 * 24 * 60 * 60 * 1000).toISOString(), cancelled_at: null, cancellation_reason: null },
+  ]
+
+  // Dummy payments
+  const payments: RevenuePayment[] = [
+    { id: 'p1', customer_id: '1', subscription_id: 's1', amount_cents: 2000, status: 'succeeded', payment_method: 'card', payment_date: new Date(now.getTime() - 5 * 24 * 60 * 60 * 1000).toISOString(), notes: null },
+    { id: 'p2', customer_id: '1', subscription_id: 's1', amount_cents: 2000, status: 'succeeded', payment_method: 'card', payment_date: new Date(now.getTime() - 35 * 24 * 60 * 60 * 1000).toISOString(), notes: null },
+    { id: 'p3', customer_id: '1', subscription_id: 's1', amount_cents: 2000, status: 'succeeded', payment_method: 'card', payment_date: new Date(now.getTime() - 65 * 24 * 60 * 60 * 1000).toISOString(), notes: null },
+    { id: 'p4', customer_id: '2', subscription_id: 's2', amount_cents: 2000, status: 'succeeded', payment_method: 'card', payment_date: new Date(now.getTime() - 10 * 24 * 60 * 60 * 1000).toISOString(), notes: null },
+    { id: 'p5', customer_id: '2', subscription_id: 's2', amount_cents: 2000, status: 'succeeded', payment_method: 'card', payment_date: new Date(now.getTime() - 40 * 24 * 60 * 60 * 1000).toISOString(), notes: null },
+    { id: 'p6', customer_id: '3', subscription_id: 's3', amount_cents: 2000, status: 'succeeded', payment_method: 'card', payment_date: new Date(now.getTime() - 25 * 24 * 60 * 60 * 1000).toISOString(), notes: null },
+    { id: 'p7', customer_id: '3', subscription_id: 's3', amount_cents: 2000, status: 'succeeded', payment_method: 'card', payment_date: new Date(now.getTime() - 55 * 24 * 60 * 60 * 1000).toISOString(), notes: null },
+    { id: 'p8', customer_id: '4', subscription_id: 's4', amount_cents: 2000, status: 'succeeded', payment_method: 'card', payment_date: new Date(now.getTime() - 40 * 24 * 60 * 60 * 1000).toISOString(), notes: null },
+    { id: 'p9', customer_id: '9', subscription_id: 's9', amount_cents: 2000, status: 'succeeded', payment_method: 'card', payment_date: new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString(), notes: null },
+    { id: 'p10', customer_id: '10', subscription_id: 's10', amount_cents: 2000, status: 'succeeded', payment_method: 'card', payment_date: new Date(now.getTime() - 15 * 24 * 60 * 60 * 1000).toISOString(), notes: null },
+    { id: 'p11', customer_id: '6', subscription_id: 's6', amount_cents: 20000, status: 'succeeded', payment_method: 'card', payment_date: '2024-08-15', notes: null },
+    { id: 'p12', customer_id: '6', subscription_id: 's6', amount_cents: 20000, status: 'succeeded', payment_method: 'card', payment_date: '2024-02-15', notes: null },
+    { id: 'p13', customer_id: '7', subscription_id: 's7', amount_cents: 20000, status: 'succeeded', payment_method: 'card', payment_date: '2024-08-15', notes: null },
+    { id: 'p14', customer_id: '8', subscription_id: 's8', amount_cents: 20000, status: 'succeeded', payment_method: 'card', payment_date: '2024-08-15', notes: null },
+  ]
+
+  // Dummy cancellation
+  const cancellations: RevenueCancellation[] = [
+    { id: 'c1', customer_id: '5', cancelled_at: new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString(), reason: 'Too expensive for my budget', reason_category: 'too_expensive', monthly_revenue_lost_cents: 2000, customer_lifetime_days: 120, total_revenue_cents: 8000, feedback: 'Loved the product but need to cut costs' },
+  ]
+
+  // Dummy snapshots (last 12 months)
+  const snapshots: RevenueSnapshot[] = []
+  for (let i = 11; i >= 0; i--) {
+    const snapshotDate = new Date(now.getFullYear(), now.getMonth() - i, 1)
+    const baseCustomers = 3 + Math.floor((11 - i) * 0.8)
+    const individualCustomers = Math.floor(baseCustomers * 0.6)
+    const leagueCustomers = baseCustomers - individualCustomers
+    const mrrCents = (individualCustomers * 2000) + (leagueCustomers * 3333)
+
+    snapshots.push({
+      id: `snap-${i}`,
+      snapshot_date: snapshotDate.toISOString().split('T')[0],
+      mrr_cents: mrrCents,
+      arr_cents: mrrCents * 12,
+      total_customers: baseCustomers,
+      individual_customers: individualCustomers,
+      league_customers: leagueCustomers,
+      new_customers: i === 0 ? 2 : Math.floor(Math.random() * 2) + 1,
+      churned_customers: i === 1 ? 1 : 0,
+      churn_rate: i === 1 ? 9.09 : 0,
+      individual_revenue_cents: individualCustomers * 2000,
+      league_revenue_cents: leagueCustomers * 3333,
+    })
+  }
+
+  return {
+    customers,
+    subscriptions,
+    payments,
+    cancellations,
+    snapshots,
+    hasData: true,
+  }
+}
