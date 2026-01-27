@@ -1,6 +1,6 @@
 'use client'
 
-import { OrganizationDetail, OrgMember } from '@/lib/supabase'
+import { OrganizationDetail, OrgMember, getOrgTypeDisplay } from '@/lib/supabase'
 import { RoleBadge } from './Badge'
 
 interface OrgDetailProps {
@@ -74,7 +74,17 @@ export function OrgDetailView({ org, searchQuery, onBack }: OrgDetailProps) {
           </span>
         </div>
         <div>
-          <h2 className="text-2xl font-bold text-white">{org.name}</h2>
+          <div className="flex items-center gap-3 mb-1">
+            <h2 className="text-2xl font-bold text-white">{org.name}</h2>
+            {(() => {
+              const typeDisplay = getOrgTypeDisplay(org.type)
+              return (
+                <span className={`px-2 py-0.5 text-xs font-medium rounded ${typeDisplay.bgColor} ${typeDisplay.color}`}>
+                  {typeDisplay.label}
+                </span>
+              )
+            })()}
+          </div>
           <p className="text-slate-400">
             {org.admins.length + org.coaches.length + org.staff.length + org.members.length} members
             {' '}&middot;{' '}

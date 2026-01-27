@@ -1,6 +1,6 @@
 'use client'
 
-import { OrganizationCard } from '@/lib/supabase'
+import { OrganizationCard, getOrgTypeDisplay } from '@/lib/supabase'
 
 interface OrgCardProps {
   org: OrganizationCard
@@ -8,6 +8,8 @@ interface OrgCardProps {
 }
 
 export function OrgCard({ org, onClick }: OrgCardProps) {
+  const typeDisplay = getOrgTypeDisplay(org.type)
+
   return (
     <button
       onClick={onClick}
@@ -25,7 +27,9 @@ export function OrgCard({ org, onClick }: OrgCardProps) {
             <h3 className="text-white font-semibold text-lg group-hover:text-primary transition-colors">
               {org.name}
             </h3>
-            <p className="text-slate-500 text-sm">Organization</p>
+            <span className={`inline-block px-2 py-0.5 text-xs font-medium rounded ${typeDisplay.bgColor} ${typeDisplay.color}`}>
+              {typeDisplay.label}
+            </span>
           </div>
         </div>
         <svg

@@ -12,8 +12,10 @@ import {
   fetchUserActivities,
   getIssueSummary,
   fetchRevenueDataFromCustomerDB,
+  getOrgTypeDisplay,
   OrganizationCard,
   OrganizationDetail,
+  OrganizationType,
   UserConnection,
   RawDiagnosticData,
   UserProfile,
@@ -152,6 +154,9 @@ function DashboardContent() {
 
   // Search state
   const [searchQuery, setSearchQuery] = useState('')
+
+  // Organization type filter state
+  const [orgTypeFilter, setOrgTypeFilter] = useState<OrganizationType | 'all'>('all')
 
   // Get fresh access token with automatic refresh
   const getValidAccessToken = useCallback(async (): Promise<string | null> => {
@@ -604,12 +609,27 @@ function DashboardContent() {
     }
   }
 
-  // Filter organizations by search
-  const filteredOrgs = searchQuery.trim()
-    ? organizations.filter(org =>
-        org.name.toLowerCase().includes(searchQuery.toLowerCase())
-      )
-    : organizations
+  // Filter organizations by search and type
+  const filteredOrgs = organizations.filter(org => {
+    // Filter by type first
+    if (orgTypeFilter !== 'all' && org.type !== orgTypeFilter) {
+      return false
+    }
+    // Then filter by search query
+    if (searchQuery.trim()) {
+      return org.name.toLowerCase().includes(searchQuery.toLowerCase())
+    }
+    return true
+  })
+
+  // Get organization type counts for filter badges
+  const orgTypeCounts = {
+    all: organizations.length,
+    operations: organizations.filter(o => o.type === 'operations').length,
+    individual: organizations.filter(o => o.type === 'individual').length,
+    academy: organizations.filter(o => o.type === 'academy').length,
+    league: organizations.filter(o => o.type === 'league').length,
+  }
 
   if (loading) {
     return (
@@ -857,6 +877,42 @@ function DashboardContent() {
                     <>
                       {orgView === 'grid' ? (
                         <>
+                          {/* Type Filter Buttons */}
+                          <div className="flex flex-wrap gap-2 mb-4">
+                            {([
+                              { type: 'all' as const, label: 'All' },
+                              { type: 'operations' as const, label: 'Operations' },
+                              { type: 'individual' as const, label: 'Individual' },
+                              { type: 'academy' as const, label: 'Academy' },
+                              { type: 'league' as const, label: 'League' },
+                            ] as const).map(({ type, label }) => {
+                              const count = orgTypeCounts[type]
+                              const isActive = orgTypeFilter === type
+                              const display = type === 'all'
+                                ? { color: 'text-white', bgColor: 'bg-slate-600' }
+                                : getOrgTypeDisplay(type)
+
+                              return (
+                                <button
+                                  key={type}
+                                  onClick={() => setOrgTypeFilter(type)}
+                                  className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${
+                                    isActive
+                                      ? `${display.bgColor} ${display.color} ring-2 ring-offset-2 ring-offset-background ring-current`
+                                      : 'bg-card border border-card-border text-slate-400 hover:text-white hover:border-slate-500'
+                                  }`}
+                                >
+                                  {label}
+                                  <span className={`ml-1.5 px-1.5 py-0.5 text-xs rounded ${
+                                    isActive ? 'bg-black/20' : 'bg-slate-700'
+                                  }`}>
+                                    {count}
+                                  </span>
+                                </button>
+                              )
+                            })}
+                          </div>
+
                           {/* Stats Cards */}
                           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-6">
                             <StatCard

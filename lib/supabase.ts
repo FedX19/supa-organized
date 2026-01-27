@@ -18,9 +18,14 @@ export interface Profile {
   email: string | null
 }
 
+// Organization types from UniteHQ
+export type OrganizationType = 'operations' | 'individual' | 'academy' | 'league' | 'unknown'
+
 export interface Organization {
   id: string
   name: string
+  type?: string | null // Raw type from database
+  organization_type?: string | null // Alternative field name
 }
 
 export interface OrganizationStaff {
@@ -66,6 +71,7 @@ export interface UserRow {
 export interface OrganizationCard {
   id: string
   name: string
+  type: OrganizationType
   staffCount: number
   memberCount: number
   playerCount: number
@@ -86,6 +92,7 @@ export interface OrgMember {
 export interface OrganizationDetail {
   id: string
   name: string
+  type: OrganizationType
   admins: OrgMember[]
   coaches: OrgMember[]
   staff: OrgMember[]
@@ -386,6 +393,58 @@ export async function testCustomerConnection(url: string, serviceRoleKey: string
   }
 }
 
+// Helper function to detect/normalize organization type
+export function detectOrganizationType(org: Organization): OrganizationType {
+  // Check explicit type fields first
+  const rawType = (org.type || org.organization_type || '').toLowerCase().trim()
+
+  if (rawType) {
+    if (rawType === 'operations' || rawType === 'operation') return 'operations'
+    if (rawType === 'individual' || rawType === 'personal') return 'individual'
+    if (rawType === 'academy' || rawType === 'school' || rawType === 'training') return 'academy'
+    if (rawType === 'league' || rawType === 'association' || rawType === 'club') return 'league'
+  }
+
+  // Fallback: infer from organization name
+  const nameLower = org.name.toLowerCase()
+
+  if (nameLower.includes('modern day coach')) {
+    // Modern Day Coach can be OPERATIONS or INDIVIDUAL
+    // Default to INDIVIDUAL for revenue purposes
+    return 'individual'
+  }
+  if (nameLower.includes('academy') || nameLower.includes('training') || nameLower.includes('school')) {
+    return 'academy'
+  }
+  if (nameLower.includes('league') || nameLower.includes('little league') ||
+      nameLower.includes('baseball') || nameLower.includes('soccer') ||
+      nameLower.includes('basketball') || nameLower.includes('football')) {
+    return 'league'
+  }
+  if (nameLower.includes('operations') || nameLower.includes('admin')) {
+    return 'operations'
+  }
+
+  // Default to league for most sports organizations
+  return 'league'
+}
+
+// Get organization type display info (label and color)
+export function getOrgTypeDisplay(type: OrganizationType): { label: string; color: string; bgColor: string } {
+  switch (type) {
+    case 'operations':
+      return { label: 'OPERATIONS', color: 'text-orange-400', bgColor: 'bg-orange-500/20' }
+    case 'individual':
+      return { label: 'INDIVIDUAL', color: 'text-blue-400', bgColor: 'bg-blue-500/20' }
+    case 'academy':
+      return { label: 'ACADEMY', color: 'text-green-400', bgColor: 'bg-green-500/20' }
+    case 'league':
+      return { label: 'LEAGUE', color: 'text-purple-400', bgColor: 'bg-purple-500/20' }
+    default:
+      return { label: 'ORGANIZATION', color: 'text-gray-400', bgColor: 'bg-gray-500/20' }
+  }
+}
+
 // Fetch organization-centric data for card grid view
 export async function fetchOrganizationCards(
   customerClient: SupabaseClient
@@ -409,7 +468,7 @@ export async function fetchOrganizationCards(
   const members: OrganizationMember[] = membersRes.data || []
   const players: Player[] = playersRes.data || []
 
-  // Build org cards with counts
+  // Build org cards with counts and type
   const orgCards: OrganizationCard[] = organizations.map(org => {
     const orgStaff = staff.filter(s => s.organization_id === org.id)
     const orgMembers = members.filter(m => m.organization_id === org.id)
@@ -418,6 +477,7 @@ export async function fetchOrganizationCards(
     return {
       id: org.id,
       name: org.name,
+      type: detectOrganizationType(org),
       staffCount: orgStaff.length,
       memberCount: orgMembers.length,
       playerCount: orgPlayers.length,
@@ -521,6 +581,7 @@ export async function fetchOrganizationDetail(
   return {
     id: org.id,
     name: org.name,
+    type: detectOrganizationType(org),
     admins,
     coaches,
     staff: otherStaff,
@@ -1726,19 +1787,20 @@ export function getPaymentsDue(data: RevenueData): PaymentDue[] {
 
 // ========== REAL REVENUE DATA TYPES (from Customer Database) ==========
 
-// Individual Member: Users in "Modern Day Coach" organization ($20/month)
+// Individual Member: Users in INDIVIDUAL/OPERATIONS type organizations ($20/month)
 export interface IndividualMember {
   id: string
   profileId: string
   name: string
   email: string
+  organizationName?: string
   joinedAt: string
   monthsActive: number
   totalRevenue: number // Calculated: monthsActive * $20
   status: 'active' | 'inactive'
 }
 
-// League Coach: Coaches in all other organizations ($200/season)
+// League Coach: Coaches in LEAGUE/ACADEMY type organizations ($200/season)
 export interface LeagueCoach {
   id: string
   profileId: string
@@ -1746,6 +1808,7 @@ export interface LeagueCoach {
   email: string
   organizationName: string
   organizationId: string
+  organizationType?: OrganizationType
   role: string
   joinedAt: string
   seasonsActive: number
@@ -1855,50 +1918,63 @@ export async function fetchRevenueDataFromCustomerDB(
     const profileMap = new Map<string, { id: string; full_name: string | null; email: string | null; created_at: string }>()
     profiles.forEach(p => profileMap.set(p.id, p))
 
-    const orgMap = new Map<string, { id: string; name: string; created_at: string }>()
-    organizations.forEach(o => orgMap.set(o.id, o))
+    // Build org map with type detection
+    const orgMap = new Map<string, { id: string; name: string; type: OrganizationType; created_at: string }>()
+    organizations.forEach(o => {
+      const orgType = detectOrganizationType(o)
+      orgMap.set(o.id, { ...o, type: orgType })
+    })
 
-    // Find "Modern Day Coach" organization
-    const modernDayCoachOrg = organizations.find(o =>
-      o.name.toLowerCase() === 'modern day coach' ||
-      o.name.toLowerCase().includes('modern day coach')
-    )
+    // Find organizations by type for revenue classification
+    // INDIVIDUAL/OPERATIONS orgs: members pay $20/month
+    // LEAGUE/ACADEMY orgs: coaches pay $200/season
+    const individualOrgIds = new Set<string>()
+    const leagueOrgIds = new Set<string>()
 
-    const modernDayCoachId = modernDayCoachOrg?.id
+    orgMap.forEach((org, id) => {
+      if (org.type === 'individual' || org.type === 'operations') {
+        individualOrgIds.add(id)
+      } else {
+        // league, academy, unknown all treated as league pricing
+        leagueOrgIds.add(id)
+      }
+    })
 
-    // Process Individual Members (Modern Day Coach organization members)
+    // Process Individual Members (members from INDIVIDUAL/OPERATIONS type orgs)
     const individualMembers: IndividualMember[] = []
-    if (modernDayCoachId) {
-      const mdcMembers = members.filter(m => m.organization_id === modernDayCoachId)
 
-      mdcMembers.forEach(member => {
-        const profile = profileMap.get(member.profile_id)
-        if (!profile) return
+    members.forEach(member => {
+      // Only process members from individual/operations type orgs
+      if (!individualOrgIds.has(member.organization_id)) return
 
-        const joinDate = new Date(member.created_at || profile.created_at)
-        const monthsActive = calculateMonthsActive(joinDate)
-        const totalRevenue = monthsActive * INDIVIDUAL_MONTHLY_PRICE
+      const profile = profileMap.get(member.profile_id)
+      if (!profile) return
 
-        individualMembers.push({
-          id: member.id,
-          profileId: member.profile_id,
-          name: profile.full_name || 'Unknown',
-          email: profile.email || '-',
-          joinedAt: member.created_at || profile.created_at,
-          monthsActive,
-          totalRevenue,
-          status: 'active',
-        })
+      const org = orgMap.get(member.organization_id)
+      const joinDate = new Date(member.created_at || profile.created_at)
+      const monthsActive = calculateMonthsActive(joinDate)
+      const totalRevenue = monthsActive * INDIVIDUAL_MONTHLY_PRICE
+
+      individualMembers.push({
+        id: member.id,
+        profileId: member.profile_id,
+        name: profile.full_name || 'Unknown',
+        email: profile.email || '-',
+        joinedAt: member.created_at || profile.created_at,
+        monthsActive,
+        totalRevenue,
+        status: 'active',
+        organizationName: org?.name || 'Unknown',
       })
-    }
+    })
 
-    // Process League Coaches (staff/coaches in all OTHER organizations)
+    // Process League Coaches (staff/coaches in LEAGUE/ACADEMY type organizations)
     const leagueCoaches: LeagueCoach[] = []
     const coachRoles = ['coach', 'head_coach', 'assistant_coach', 'admin', 'owner']
 
     staff.forEach(s => {
-      // Skip if this is Modern Day Coach organization
-      if (modernDayCoachId && s.organization_id === modernDayCoachId) return
+      // Only process staff from league/academy type orgs
+      if (!leagueOrgIds.has(s.organization_id)) return
 
       const org = orgMap.get(s.organization_id)
       if (!org) return
@@ -1922,6 +1998,7 @@ export async function fetchRevenueDataFromCustomerDB(
         email: profile.email || '-',
         organizationName: org.name,
         organizationId: s.organization_id,
+        organizationType: org.type,
         role: s.role,
         joinedAt: s.created_at || profile.created_at,
         seasonsActive,

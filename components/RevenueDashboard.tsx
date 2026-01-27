@@ -426,14 +426,32 @@ function IndividualsSection({ members }: { members: IndividualMember[] }) {
   const sortedMembers = [...members].sort((a, b) => b.totalRevenue - a.totalRevenue)
   const totalRevenue = members.reduce((sum, m) => sum + m.totalRevenue, 0)
 
+  // Group by organization for summary
+  const orgGroups = new Map<string, number>()
+  members.forEach(m => {
+    const orgName = m.organizationName || 'Unknown'
+    orgGroups.set(orgName, (orgGroups.get(orgName) || 0) + 1)
+  })
+
   return (
     <div className="space-y-6">
       {/* Summary */}
       <div className="bg-blue-500/10 border border-blue-500/30 rounded-lg p-6">
         <div className="flex items-center justify-between">
           <div>
-            <h3 className="text-lg font-semibold text-white">Modern Day Coach Members</h3>
-            <p className="text-gray-400 text-sm mt-1">Individual members paying $20/month</p>
+            <h3 className="text-lg font-semibold text-white">Individual Members</h3>
+            <p className="text-gray-400 text-sm mt-1">
+              Members from INDIVIDUAL/OPERATIONS type organizations paying $20/month
+            </p>
+            {orgGroups.size > 0 && (
+              <div className="flex flex-wrap gap-2 mt-2">
+                {Array.from(orgGroups.entries()).map(([orgName, count]) => (
+                  <span key={orgName} className="px-2 py-0.5 text-xs rounded bg-blue-500/20 text-blue-300">
+                    {orgName}: {count}
+                  </span>
+                ))}
+              </div>
+            )}
           </div>
           <div className="text-right">
             <div className="text-2xl font-bold text-blue-400">{members.length}</div>
@@ -452,6 +470,7 @@ function IndividualsSection({ members }: { members: IndividualMember[] }) {
             <thead>
               <tr className="border-b border-dark-border bg-dark-surface text-sm">
                 <th className="px-4 py-3 text-left text-gray-400 font-medium">Name</th>
+                <th className="px-4 py-3 text-left text-gray-400 font-medium">Organization</th>
                 <th className="px-4 py-3 text-left text-gray-400 font-medium">Email</th>
                 <th className="px-4 py-3 text-right text-gray-400 font-medium">Joined</th>
                 <th className="px-4 py-3 text-right text-gray-400 font-medium">Months</th>
@@ -462,6 +481,7 @@ function IndividualsSection({ members }: { members: IndividualMember[] }) {
               {sortedMembers.map((member) => (
                 <tr key={member.id} className="hover:bg-dark-surface">
                   <td className="px-4 py-3 text-white font-medium">{member.name}</td>
+                  <td className="px-4 py-3 text-gray-300 text-sm">{member.organizationName || '-'}</td>
                   <td className="px-4 py-3 text-gray-400 text-sm">{member.email}</td>
                   <td className="px-4 py-3 text-right text-gray-400 text-sm">
                     {new Date(member.joinedAt).toLocaleDateString()}
@@ -478,7 +498,7 @@ function IndividualsSection({ members }: { members: IndividualMember[] }) {
           </table>
           {members.length === 0 && (
             <div className="p-8 text-center text-gray-400">
-              No individual members found. Add users to the &quot;Modern Day Coach&quot; organization.
+              No individual members found. Add members to INDIVIDUAL or OPERATIONS type organizations.
             </div>
           )}
         </div>
@@ -507,7 +527,7 @@ function LeaguesSection({ coaches }: { coaches: LeagueCoach[] }) {
         <div className="flex items-center justify-between">
           <div>
             <h3 className="text-lg font-semibold text-white">League Coaches</h3>
-            <p className="text-gray-400 text-sm mt-1">Coaches in all organizations (except Modern Day Coach) paying $200/season</p>
+            <p className="text-gray-400 text-sm mt-1">Coaches in LEAGUE/ACADEMY type organizations paying $200/season</p>
           </div>
           <div className="text-right">
             <div className="text-2xl font-bold text-primary">{coaches.length}</div>
@@ -600,6 +620,7 @@ function ExportSection({ data }: { data: RealRevenueData }) {
         csvData = exportToCSV(
           data.individualMembers.map(m => ({
             name: m.name,
+            organization: m.organizationName || '-',
             email: m.email,
             joined: new Date(m.joinedAt).toLocaleDateString(),
             months_active: m.monthsActive,
@@ -607,6 +628,7 @@ function ExportSection({ data }: { data: RealRevenueData }) {
           })),
           [
             { key: 'name', label: 'Name' },
+            { key: 'organization', label: 'Organization' },
             { key: 'email', label: 'Email' },
             { key: 'joined', label: 'Joined' },
             { key: 'months_active', label: 'Months Active' },
