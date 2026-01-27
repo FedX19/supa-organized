@@ -15,9 +15,9 @@
     },
     {
       "src": "/apple-touch-icon.svg",
-      "sizes": "180x180",
+      "sizes": "270x270",
       "type": "image/svg+xml",
-      "purpose": "any"
+      "purpose": "any maskable"
     }
   ]
 }

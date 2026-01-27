@@ -1,4 +1,5 @@
 import Link from 'next/link'
+import { FullLogo } from '@/components/Logo'
 
 export default function LandingPage() {
   return (
@@ -6,14 +7,9 @@ export default function LandingPage() {
       {/* Header */}
       <header className="border-b border-card-border">
         <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <div className="w-8 h-8 bg-primary rounded-lg flex items-center justify-center">
-              <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
-              </svg>
-            </div>
-            <span className="text-white font-bold text-xl">SupaOrganized</span>
-          </div>
+          <Link href="/" className="flex items-center">
+            <FullLogo className="w-48 h-12" />
+          </Link>
           <div className="flex items-center gap-4">
             <Link
               href="/login"

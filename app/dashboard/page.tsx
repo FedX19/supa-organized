@@ -11,6 +11,7 @@ import {
   fetchUserActivity,
   fetchUserActivities,
   getIssueSummary,
+  generateDummyRevenueData,
   OrganizationCard,
   OrganizationDetail,
   UserConnection,
@@ -20,6 +21,7 @@ import {
   AnalyticsData,
   DateRange,
   ActivityEventDetail,
+  RevenueData,
 } from '@/lib/supabase'
 import { Sidebar, MobileMenuButton } from '@/components/Sidebar'
 import { StatCard } from '@/components/StatCard'
@@ -33,8 +35,9 @@ import IssueDashboard from '@/components/IssueDashboard'
 import ExportTools from '@/components/ExportTools'
 import AnalyticsDashboard from '@/components/AnalyticsDashboard'
 import ConnectionsPanel from '@/components/ConnectionsPanel'
+import RevenueDashboard from '@/components/RevenueDashboard'
 
-type SidebarView = 'dashboard' | 'analytics' | 'connections'
+type SidebarView = 'dashboard' | 'analytics' | 'connections' | 'revenue'
 type Tab = 'organizations' | 'users' | 'issues' | 'relationships' | 'export'
 type OrgView = 'grid' | 'detail'
 type UserView = 'search' | 'profile' | 'diagnostic'
@@ -122,6 +125,9 @@ function DashboardContent() {
   const [analyticsData, setAnalyticsData] = useState<AnalyticsData>({ activities: [], hasTable: false })
   const [analyticsLoading, setAnalyticsLoading] = useState(false)
   const [dateRange, setDateRange] = useState<DateRange>('30d')
+
+  // Revenue data (using dummy data for now)
+  const [revenueData] = useState<RevenueData>(() => generateDummyRevenueData())
 
   // Organization view state
   const [orgView, setOrgView] = useState<OrgView>('grid')
@@ -567,6 +573,7 @@ function DashboardContent() {
   const getPageTitle = () => {
     if (sidebarView === 'analytics') return 'Analytics'
     if (sidebarView === 'connections') return 'Connections'
+    if (sidebarView === 'revenue') return 'Revenue Dashboard'
 
     // Dashboard view titles
     if (activeTab === 'organizations') {
@@ -650,6 +657,11 @@ function DashboardContent() {
               </a>
             </div>
           )
+        )}
+
+        {/* Revenue View */}
+        {sidebarView === 'revenue' && (
+          <RevenueDashboard data={revenueData} />
         )}
 
         {/* Dashboard View */}
