@@ -1724,92 +1724,320 @@ export function getPaymentsDue(data: RevenueData): PaymentDue[] {
   })
 }
 
-// Generate dummy/test revenue data
-export function generateDummyRevenueData(): RevenueData {
+// ========== REAL REVENUE DATA TYPES (from Customer Database) ==========
+
+// Individual Member: Users in "Modern Day Coach" organization ($20/month)
+export interface IndividualMember {
+  id: string
+  profileId: string
+  name: string
+  email: string
+  joinedAt: string
+  monthsActive: number
+  totalRevenue: number // Calculated: monthsActive * $20
+  status: 'active' | 'inactive'
+}
+
+// League Coach: Coaches in all other organizations ($200/season)
+export interface LeagueCoach {
+  id: string
+  profileId: string
+  name: string
+  email: string
+  organizationName: string
+  organizationId: string
+  role: string
+  joinedAt: string
+  seasonsActive: number
+  totalRevenue: number // Calculated: seasonsActive * $200
+  status: 'active' | 'inactive'
+}
+
+export interface RealRevenueData {
+  individualMembers: IndividualMember[]
+  leagueCoaches: LeagueCoach[]
+  metrics: RealRevenueMetrics
+  growthData: GrowthDataPoint[]
+  hasData: boolean
+  error?: string
+}
+
+export interface RealRevenueMetrics {
+  mrr: number // Monthly Recurring Revenue
+  arr: number // Annual Recurring Revenue
+  totalRevenue: number // All-time revenue
+  individualMemberCount: number
+  leagueCoachCount: number
+  totalCustomers: number
+  individualMRR: number // Individual members * $20
+  leagueMRR: number // League coaches * ($200/6 months = $33.33/month)
+  churnRate: number
+  mrrGrowth: number
+  userGrowth: number
+}
+
+export interface GrowthDataPoint {
+  date: string
+  month: string
+  individualCount: number
+  leagueCount: number
+  totalCustomers: number
+  mrr: number
+  individualRevenue: number
+  leagueRevenue: number
+}
+
+// Constants for pricing
+const INDIVIDUAL_MONTHLY_PRICE = 20 // $20/month
+const LEAGUE_SEASONAL_PRICE = 200 // $200/season
+const MONTHS_PER_SEASON = 6 // Each season is 6 months
+const LEAGUE_MONTHLY_EQUIVALENT = LEAGUE_SEASONAL_PRICE / MONTHS_PER_SEASON // $33.33/month
+
+// Calculate number of seasons since a date
+function calculateSeasonsActive(joinDate: Date): number {
   const now = new Date()
 
-  // Dummy customers
-  const customers: RevenueCustomer[] = [
-    { id: '1', email: 'john@example.com', full_name: 'John Smith', customer_type: 'individual', organization_name: null, status: 'active', created_at: new Date(now.getTime() - 180 * 24 * 60 * 60 * 1000).toISOString() },
-    { id: '2', email: 'jane@example.com', full_name: 'Jane Doe', customer_type: 'individual', organization_name: null, status: 'active', created_at: new Date(now.getTime() - 120 * 24 * 60 * 60 * 1000).toISOString() },
-    { id: '3', email: 'mike@example.com', full_name: 'Mike Johnson', customer_type: 'individual', organization_name: null, status: 'active', created_at: new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000).toISOString() },
-    { id: '4', email: 'sarah@example.com', full_name: 'Sarah Wilson', customer_type: 'individual', organization_name: null, status: 'active', created_at: new Date(now.getTime() - 60 * 24 * 60 * 60 * 1000).toISOString() },
-    { id: '5', email: 'bob@example.com', full_name: 'Bob Brown', customer_type: 'individual', organization_name: null, status: 'cancelled', created_at: new Date(now.getTime() - 150 * 24 * 60 * 60 * 1000).toISOString() },
-    { id: '6', email: 'coach.tom@league.com', full_name: 'Coach Tom', customer_type: 'league', organization_name: 'Eastside Youth Soccer', status: 'active', created_at: new Date(now.getTime() - 240 * 24 * 60 * 60 * 1000).toISOString() },
-    { id: '7', email: 'coach.lisa@league.com', full_name: 'Coach Lisa', customer_type: 'league', organization_name: 'Downtown Basketball Club', status: 'active', created_at: new Date(now.getTime() - 180 * 24 * 60 * 60 * 1000).toISOString() },
-    { id: '8', email: 'coach.david@league.com', full_name: 'Coach David', customer_type: 'league', organization_name: 'Northside Little League', status: 'active', created_at: new Date(now.getTime() - 120 * 24 * 60 * 60 * 1000).toISOString() },
-    { id: '9', email: 'emily@example.com', full_name: 'Emily Chen', customer_type: 'individual', organization_name: null, status: 'active', created_at: new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString() },
-    { id: '10', email: 'alex@example.com', full_name: 'Alex Rivera', customer_type: 'individual', organization_name: null, status: 'active', created_at: new Date(now.getTime() - 15 * 24 * 60 * 60 * 1000).toISOString() },
-  ]
+  // Season dates: Feb 15 (Spring) and Aug 15 (Fall)
+  let seasons = 0
+  const currentYear = now.getFullYear()
+  const joinYear = joinDate.getFullYear()
 
-  // Dummy subscriptions
-  const subscriptions: RevenueSubscription[] = [
-    { id: 's1', customer_id: '1', plan_type: 'individual_monthly', amount_cents: 2000, status: 'active', current_period_start: new Date(now.getTime() - 5 * 24 * 60 * 60 * 1000).toISOString(), current_period_end: new Date(now.getTime() + 25 * 24 * 60 * 60 * 1000).toISOString(), cancelled_at: null, cancellation_reason: null },
-    { id: 's2', customer_id: '2', plan_type: 'individual_monthly', amount_cents: 2000, status: 'active', current_period_start: new Date(now.getTime() - 10 * 24 * 60 * 60 * 1000).toISOString(), current_period_end: new Date(now.getTime() + 20 * 24 * 60 * 60 * 1000).toISOString(), cancelled_at: null, cancellation_reason: null },
-    { id: 's3', customer_id: '3', plan_type: 'individual_monthly', amount_cents: 2000, status: 'active', current_period_start: new Date(now.getTime() - 25 * 24 * 60 * 60 * 1000).toISOString(), current_period_end: new Date(now.getTime() + 5 * 24 * 60 * 60 * 1000).toISOString(), cancelled_at: null, cancellation_reason: null },
-    { id: 's4', customer_id: '4', plan_type: 'individual_monthly', amount_cents: 2000, status: 'active', current_period_start: new Date(now.getTime() - 40 * 24 * 60 * 60 * 1000).toISOString(), current_period_end: new Date(now.getTime() - 10 * 24 * 60 * 60 * 1000).toISOString(), cancelled_at: null, cancellation_reason: null },
-    { id: 's5', customer_id: '5', plan_type: 'individual_monthly', amount_cents: 2000, status: 'cancelled', current_period_start: new Date(now.getTime() - 60 * 24 * 60 * 60 * 1000).toISOString(), current_period_end: new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString(), cancelled_at: new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString(), cancellation_reason: 'Too expensive' },
-    { id: 's6', customer_id: '6', plan_type: 'league_seasonal', amount_cents: 20000, status: 'active', current_period_start: '2024-08-15', current_period_end: '2025-02-14', cancelled_at: null, cancellation_reason: null },
-    { id: 's7', customer_id: '7', plan_type: 'league_seasonal', amount_cents: 20000, status: 'active', current_period_start: '2024-08-15', current_period_end: '2025-02-14', cancelled_at: null, cancellation_reason: null },
-    { id: 's8', customer_id: '8', plan_type: 'league_seasonal', amount_cents: 20000, status: 'active', current_period_start: '2024-08-15', current_period_end: '2025-02-14', cancelled_at: null, cancellation_reason: null },
-    { id: 's9', customer_id: '9', plan_type: 'individual_monthly', amount_cents: 2000, status: 'active', current_period_start: new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString(), current_period_end: now.toISOString(), cancelled_at: null, cancellation_reason: null },
-    { id: 's10', customer_id: '10', plan_type: 'individual_monthly', amount_cents: 2000, status: 'active', current_period_start: new Date(now.getTime() - 15 * 24 * 60 * 60 * 1000).toISOString(), current_period_end: new Date(now.getTime() + 15 * 24 * 60 * 60 * 1000).toISOString(), cancelled_at: null, cancellation_reason: null },
-  ]
+  // Count all season start dates between join date and now
+  for (let year = joinYear; year <= currentYear; year++) {
+    // Spring season starts Feb 15
+    const springStart = new Date(year, 1, 15) // Feb 15
+    if (springStart > joinDate && springStart <= now) {
+      seasons++
+    }
 
-  // Dummy payments
-  const payments: RevenuePayment[] = [
-    { id: 'p1', customer_id: '1', subscription_id: 's1', amount_cents: 2000, status: 'succeeded', payment_method: 'card', payment_date: new Date(now.getTime() - 5 * 24 * 60 * 60 * 1000).toISOString(), notes: null },
-    { id: 'p2', customer_id: '1', subscription_id: 's1', amount_cents: 2000, status: 'succeeded', payment_method: 'card', payment_date: new Date(now.getTime() - 35 * 24 * 60 * 60 * 1000).toISOString(), notes: null },
-    { id: 'p3', customer_id: '1', subscription_id: 's1', amount_cents: 2000, status: 'succeeded', payment_method: 'card', payment_date: new Date(now.getTime() - 65 * 24 * 60 * 60 * 1000).toISOString(), notes: null },
-    { id: 'p4', customer_id: '2', subscription_id: 's2', amount_cents: 2000, status: 'succeeded', payment_method: 'card', payment_date: new Date(now.getTime() - 10 * 24 * 60 * 60 * 1000).toISOString(), notes: null },
-    { id: 'p5', customer_id: '2', subscription_id: 's2', amount_cents: 2000, status: 'succeeded', payment_method: 'card', payment_date: new Date(now.getTime() - 40 * 24 * 60 * 60 * 1000).toISOString(), notes: null },
-    { id: 'p6', customer_id: '3', subscription_id: 's3', amount_cents: 2000, status: 'succeeded', payment_method: 'card', payment_date: new Date(now.getTime() - 25 * 24 * 60 * 60 * 1000).toISOString(), notes: null },
-    { id: 'p7', customer_id: '3', subscription_id: 's3', amount_cents: 2000, status: 'succeeded', payment_method: 'card', payment_date: new Date(now.getTime() - 55 * 24 * 60 * 60 * 1000).toISOString(), notes: null },
-    { id: 'p8', customer_id: '4', subscription_id: 's4', amount_cents: 2000, status: 'succeeded', payment_method: 'card', payment_date: new Date(now.getTime() - 40 * 24 * 60 * 60 * 1000).toISOString(), notes: null },
-    { id: 'p9', customer_id: '9', subscription_id: 's9', amount_cents: 2000, status: 'succeeded', payment_method: 'card', payment_date: new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString(), notes: null },
-    { id: 'p10', customer_id: '10', subscription_id: 's10', amount_cents: 2000, status: 'succeeded', payment_method: 'card', payment_date: new Date(now.getTime() - 15 * 24 * 60 * 60 * 1000).toISOString(), notes: null },
-    { id: 'p11', customer_id: '6', subscription_id: 's6', amount_cents: 20000, status: 'succeeded', payment_method: 'card', payment_date: '2024-08-15', notes: null },
-    { id: 'p12', customer_id: '6', subscription_id: 's6', amount_cents: 20000, status: 'succeeded', payment_method: 'card', payment_date: '2024-02-15', notes: null },
-    { id: 'p13', customer_id: '7', subscription_id: 's7', amount_cents: 20000, status: 'succeeded', payment_method: 'card', payment_date: '2024-08-15', notes: null },
-    { id: 'p14', customer_id: '8', subscription_id: 's8', amount_cents: 20000, status: 'succeeded', payment_method: 'card', payment_date: '2024-08-15', notes: null },
-  ]
+    // Fall season starts Aug 15
+    const fallStart = new Date(year, 7, 15) // Aug 15
+    if (fallStart > joinDate && fallStart <= now) {
+      seasons++
+    }
+  }
 
-  // Dummy cancellation
-  const cancellations: RevenueCancellation[] = [
-    { id: 'c1', customer_id: '5', cancelled_at: new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString(), reason: 'Too expensive for my budget', reason_category: 'too_expensive', monthly_revenue_lost_cents: 2000, customer_lifetime_days: 120, total_revenue_cents: 8000, feedback: 'Loved the product but need to cut costs' },
-  ]
+  // Add 1 for the current/initial season they joined in
+  return Math.max(1, seasons + 1)
+}
 
-  // Dummy snapshots (last 12 months)
-  const snapshots: RevenueSnapshot[] = []
+// Calculate number of months since a date
+function calculateMonthsActive(joinDate: Date): number {
+  const now = new Date()
+  const months = (now.getFullYear() - joinDate.getFullYear()) * 12 + (now.getMonth() - joinDate.getMonth())
+  return Math.max(1, months + 1) // At least 1 month
+}
+
+// Fetch revenue data from the customer database
+export async function fetchRevenueDataFromCustomerDB(
+  customerClient: SupabaseClient
+): Promise<RealRevenueData> {
+  try {
+    // Fetch all required data in parallel
+    const [profilesRes, orgsRes, staffRes, membersRes] = await Promise.all([
+      customerClient.from('profiles').select('id, full_name, email, created_at'),
+      customerClient.from('organizations').select('id, name, created_at'),
+      customerClient.from('organization_staff').select('id, profile_id, organization_id, role, created_at'),
+      customerClient.from('organization_members').select('id, profile_id, organization_id, created_at'),
+    ])
+
+    if (profilesRes.error) throw new Error(`Profiles error: ${profilesRes.error.message}`)
+    if (orgsRes.error) throw new Error(`Organizations error: ${orgsRes.error.message}`)
+    if (staffRes.error) throw new Error(`Staff error: ${staffRes.error.message}`)
+    if (membersRes.error) throw new Error(`Members error: ${membersRes.error.message}`)
+
+    const profiles = profilesRes.data || []
+    const organizations = orgsRes.data || []
+    const staff = staffRes.data || []
+    const members = membersRes.data || []
+
+    // Build lookup maps
+    const profileMap = new Map<string, { id: string; full_name: string | null; email: string | null; created_at: string }>()
+    profiles.forEach(p => profileMap.set(p.id, p))
+
+    const orgMap = new Map<string, { id: string; name: string; created_at: string }>()
+    organizations.forEach(o => orgMap.set(o.id, o))
+
+    // Find "Modern Day Coach" organization
+    const modernDayCoachOrg = organizations.find(o =>
+      o.name.toLowerCase() === 'modern day coach' ||
+      o.name.toLowerCase().includes('modern day coach')
+    )
+
+    const modernDayCoachId = modernDayCoachOrg?.id
+
+    // Process Individual Members (Modern Day Coach organization members)
+    const individualMembers: IndividualMember[] = []
+    if (modernDayCoachId) {
+      const mdcMembers = members.filter(m => m.organization_id === modernDayCoachId)
+
+      mdcMembers.forEach(member => {
+        const profile = profileMap.get(member.profile_id)
+        if (!profile) return
+
+        const joinDate = new Date(member.created_at || profile.created_at)
+        const monthsActive = calculateMonthsActive(joinDate)
+        const totalRevenue = monthsActive * INDIVIDUAL_MONTHLY_PRICE
+
+        individualMembers.push({
+          id: member.id,
+          profileId: member.profile_id,
+          name: profile.full_name || 'Unknown',
+          email: profile.email || '-',
+          joinedAt: member.created_at || profile.created_at,
+          monthsActive,
+          totalRevenue,
+          status: 'active',
+        })
+      })
+    }
+
+    // Process League Coaches (staff/coaches in all OTHER organizations)
+    const leagueCoaches: LeagueCoach[] = []
+    const coachRoles = ['coach', 'head_coach', 'assistant_coach', 'admin', 'owner']
+
+    staff.forEach(s => {
+      // Skip if this is Modern Day Coach organization
+      if (modernDayCoachId && s.organization_id === modernDayCoachId) return
+
+      const org = orgMap.get(s.organization_id)
+      if (!org) return
+
+      const profile = profileMap.get(s.profile_id)
+      if (!profile) return
+
+      // Only count coaches/admins as league coaches
+      const roleLower = (s.role || '').toLowerCase()
+      const isCoachRole = coachRoles.some(r => roleLower.includes(r))
+      if (!isCoachRole) return
+
+      const joinDate = new Date(s.created_at || profile.created_at)
+      const seasonsActive = calculateSeasonsActive(joinDate)
+      const totalRevenue = seasonsActive * LEAGUE_SEASONAL_PRICE
+
+      leagueCoaches.push({
+        id: s.id,
+        profileId: s.profile_id,
+        name: profile.full_name || 'Unknown',
+        email: profile.email || '-',
+        organizationName: org.name,
+        organizationId: s.organization_id,
+        role: s.role,
+        joinedAt: s.created_at || profile.created_at,
+        seasonsActive,
+        totalRevenue,
+        status: 'active',
+      })
+    })
+
+    // Calculate metrics
+    const individualMRR = individualMembers.length * INDIVIDUAL_MONTHLY_PRICE
+    const leagueMRR = leagueCoaches.length * LEAGUE_MONTHLY_EQUIVALENT
+    const mrr = individualMRR + leagueMRR
+    const arr = mrr * 12
+
+    const totalIndividualRevenue = individualMembers.reduce((sum, m) => sum + m.totalRevenue, 0)
+    const totalLeagueRevenue = leagueCoaches.reduce((sum, c) => sum + c.totalRevenue, 0)
+    const totalRevenue = totalIndividualRevenue + totalLeagueRevenue
+
+    // Generate growth data for the last 12 months
+    const growthData = generateGrowthData(individualMembers, leagueCoaches)
+
+    // Calculate growth rates
+    const lastMonth = growthData.length >= 2 ? growthData[growthData.length - 2] : null
+    const thisMonth = growthData.length >= 1 ? growthData[growthData.length - 1] : null
+
+    const mrrGrowth = lastMonth && lastMonth.mrr > 0
+      ? Math.round(((thisMonth!.mrr - lastMonth.mrr) / lastMonth.mrr) * 1000) / 10
+      : 0
+
+    const userGrowth = lastMonth && lastMonth.totalCustomers > 0
+      ? Math.round(((thisMonth!.totalCustomers - lastMonth.totalCustomers) / lastMonth.totalCustomers) * 1000) / 10
+      : 0
+
+    const metrics: RealRevenueMetrics = {
+      mrr,
+      arr,
+      totalRevenue,
+      individualMemberCount: individualMembers.length,
+      leagueCoachCount: leagueCoaches.length,
+      totalCustomers: individualMembers.length + leagueCoaches.length,
+      individualMRR,
+      leagueMRR: Math.round(leagueMRR * 100) / 100,
+      churnRate: 0, // Would need historical data to calculate
+      mrrGrowth,
+      userGrowth,
+    }
+
+    return {
+      individualMembers,
+      leagueCoaches,
+      metrics,
+      growthData,
+      hasData: individualMembers.length > 0 || leagueCoaches.length > 0,
+    }
+  } catch (error) {
+    console.error('Error fetching revenue data:', error)
+    return {
+      individualMembers: [],
+      leagueCoaches: [],
+      metrics: {
+        mrr: 0,
+        arr: 0,
+        totalRevenue: 0,
+        individualMemberCount: 0,
+        leagueCoachCount: 0,
+        totalCustomers: 0,
+        individualMRR: 0,
+        leagueMRR: 0,
+        churnRate: 0,
+        mrrGrowth: 0,
+        userGrowth: 0,
+      },
+      growthData: [],
+      hasData: false,
+      error: error instanceof Error ? error.message : 'Unknown error',
+    }
+  }
+}
+
+// Generate monthly growth data from join dates
+function generateGrowthData(
+  individualMembers: IndividualMember[],
+  leagueCoaches: LeagueCoach[]
+): GrowthDataPoint[] {
+  const now = new Date()
+  const growthData: GrowthDataPoint[] = []
+
+  // Generate data for the last 12 months
   for (let i = 11; i >= 0; i--) {
-    const snapshotDate = new Date(now.getFullYear(), now.getMonth() - i, 1)
-    const baseCustomers = 3 + Math.floor((11 - i) * 0.8)
-    const individualCustomers = Math.floor(baseCustomers * 0.6)
-    const leagueCustomers = baseCustomers - individualCustomers
-    const mrrCents = (individualCustomers * 2000) + (leagueCustomers * 3333)
+    const monthDate = new Date(now.getFullYear(), now.getMonth() - i, 1)
+    const monthEnd = new Date(now.getFullYear(), now.getMonth() - i + 1, 0)
 
-    snapshots.push({
-      id: `snap-${i}`,
-      snapshot_date: snapshotDate.toISOString().split('T')[0],
-      mrr_cents: mrrCents,
-      arr_cents: mrrCents * 12,
-      total_customers: baseCustomers,
-      individual_customers: individualCustomers,
-      league_customers: leagueCustomers,
-      new_customers: i === 0 ? 2 : Math.floor(Math.random() * 2) + 1,
-      churned_customers: i === 1 ? 1 : 0,
-      churn_rate: i === 1 ? 9.09 : 0,
-      individual_revenue_cents: individualCustomers * 2000,
-      league_revenue_cents: leagueCustomers * 3333,
+    // Count members who joined before this month end
+    const individualCount = individualMembers.filter(m =>
+      new Date(m.joinedAt) <= monthEnd
+    ).length
+
+    const leagueCount = leagueCoaches.filter(c =>
+      new Date(c.joinedAt) <= monthEnd
+    ).length
+
+    const individualRevenue = individualCount * INDIVIDUAL_MONTHLY_PRICE
+    const leagueRevenue = leagueCount * LEAGUE_MONTHLY_EQUIVALENT
+    const mrr = individualRevenue + leagueRevenue
+
+    growthData.push({
+      date: monthDate.toISOString().split('T')[0],
+      month: monthDate.toLocaleDateString('en-US', { month: 'short', year: '2-digit' }),
+      individualCount,
+      leagueCount,
+      totalCustomers: individualCount + leagueCount,
+      mrr: Math.round(mrr * 100) / 100,
+      individualRevenue,
+      leagueRevenue: Math.round(leagueRevenue * 100) / 100,
     })
   }
 
-  return {
-    customers,
-    subscriptions,
-    payments,
-    cancellations,
-    snapshots,
-    hasData: true,
-  }
+  return growthData
 }
