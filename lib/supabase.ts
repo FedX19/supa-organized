@@ -1389,40 +1389,79 @@ export async function refreshActivityData(
     messages: 0,
     assessments: 0,
   }
+  const errors: string[] = []
 
   try {
-    // First, ensure user_activity table exists by trying a simple query
+    // First, check if user_activity table exists
     const { error: checkError } = await customerClient
       .from('user_activity')
       .select('id')
       .limit(1)
 
-    if (checkError && (checkError.message?.includes('does not exist') || checkError.code === '42P01')) {
-      return {
-        success: false,
-        totalRecords: 0,
-        breakdown,
-        error: 'user_activity table does not exist. Please create it first using the SQL schema provided.',
+    if (checkError) {
+      console.log('user_activity check error:', checkError.message, checkError.code)
+
+      // Table doesn't exist - try to create it
+      if (checkError.message?.includes('does not exist') || checkError.code === '42P01' || checkError.code === 'PGRST116') {
+        console.log('Attempting to create user_activity table...')
+
+        // Try to create the table via RPC or direct SQL
+        const createTableSQL = `
+          CREATE TABLE IF NOT EXISTS user_activity (
+            id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+            profile_id UUID,
+            organization_id UUID,
+            event_type TEXT NOT NULL,
+            timestamp TIMESTAMPTZ DEFAULT NOW(),
+            metadata JSONB
+          );
+          CREATE INDEX IF NOT EXISTS idx_user_activity_profile ON user_activity(profile_id);
+          CREATE INDEX IF NOT EXISTS idx_user_activity_timestamp ON user_activity(timestamp);
+        `
+
+        // Try using rpc if available
+        const { error: createError } = await customerClient.rpc('exec_sql', { sql: createTableSQL }).single()
+
+        if (createError) {
+          console.log('Could not create table via RPC:', createError.message)
+          return {
+            success: false,
+            totalRecords: 0,
+            breakdown,
+            error: 'user_activity table does not exist and could not be created. Please create it manually using the SQL schema provided in the Analytics section.',
+          }
+        }
+      } else {
+        errors.push(`Table check error: ${checkError.message}`)
       }
     }
 
-    // Clear existing activity data (truncate equivalent)
+    // Clear existing activity data - use a more reliable delete
+    console.log('Clearing existing user_activity data...')
     const { error: deleteError } = await customerClient
       .from('user_activity')
       .delete()
-      .gte('timestamp', '1900-01-01') // Delete all records
+      .neq('id', '00000000-0000-0000-0000-000000000000') // Delete all records (workaround)
 
     if (deleteError) {
       console.warn('Could not clear user_activity:', deleteError.message)
+      errors.push(`Delete error: ${deleteError.message}`)
+    } else {
+      console.log('Cleared existing records')
     }
 
     // 1. USER SIGNUPS - from profiles table (created_at)
-    const { data: profiles } = await customerClient
+    console.log('Fetching signups from profiles...')
+    const { data: profiles, error: profilesError } = await customerClient
       .from('profiles')
       .select('id, created_at')
       .gte('created_at', cutoffDate)
 
-    if (profiles && profiles.length > 0) {
+    if (profilesError) {
+      console.warn('Profiles fetch error:', profilesError.message)
+      errors.push(`Profiles error: ${profilesError.message}`)
+    } else if (profiles && profiles.length > 0) {
+      console.log(`Found ${profiles.length} profiles to insert as signups`)
       const signupRecords = profiles.map(p => ({
         profile_id: p.id,
         event_type: 'signup',
@@ -1434,19 +1473,28 @@ export async function refreshActivityData(
         .from('user_activity')
         .insert(signupRecords)
 
-      if (!insertError) {
+      if (insertError) {
+        console.warn('Signup insert error:', insertError.message)
+        errors.push(`Signup insert error: ${insertError.message}`)
+      } else {
         breakdown.signups = signupRecords.length
         totalRecords += signupRecords.length
+        console.log(`Inserted ${signupRecords.length} signup records`)
       }
     }
 
     // 2. JOIN ORGANIZATION - from organization_members table
-    const { data: members } = await customerClient
+    console.log('Fetching organization joins...')
+    const { data: members, error: membersError } = await customerClient
       .from('organization_members')
       .select('id, profile_id, organization_id, created_at')
       .gte('created_at', cutoffDate)
 
-    if (members && members.length > 0) {
+    if (membersError) {
+      console.warn('Members fetch error:', membersError.message)
+      errors.push(`Members error: ${membersError.message}`)
+    } else if (members && members.length > 0) {
+      console.log(`Found ${members.length} member records`)
       const joinRecords = members.map(m => ({
         profile_id: m.profile_id,
         organization_id: m.organization_id,
@@ -1459,19 +1507,28 @@ export async function refreshActivityData(
         .from('user_activity')
         .insert(joinRecords)
 
-      if (!insertError) {
+      if (insertError) {
+        console.warn('Join insert error:', insertError.message)
+        errors.push(`Join insert error: ${insertError.message}`)
+      } else {
         breakdown.joinOrg = joinRecords.length
         totalRecords += joinRecords.length
+        console.log(`Inserted ${joinRecords.length} join records`)
       }
     }
 
     // 3. ROLE CHANGES - from organization_staff table
-    const { data: staff } = await customerClient
+    console.log('Fetching role changes...')
+    const { data: staff, error: staffError } = await customerClient
       .from('organization_staff')
       .select('id, profile_id, organization_id, role, created_at')
       .gte('created_at', cutoffDate)
 
-    if (staff && staff.length > 0) {
+    if (staffError) {
+      console.warn('Staff fetch error:', staffError.message)
+      errors.push(`Staff error: ${staffError.message}`)
+    } else if (staff && staff.length > 0) {
+      console.log(`Found ${staff.length} staff records`)
       const roleRecords = staff.map(s => ({
         profile_id: s.profile_id,
         organization_id: s.organization_id,
@@ -1484,20 +1541,25 @@ export async function refreshActivityData(
         .from('user_activity')
         .insert(roleRecords)
 
-      if (!insertError) {
+      if (insertError) {
+        console.warn('Role insert error:', insertError.message)
+        errors.push(`Role insert error: ${insertError.message}`)
+      } else {
         breakdown.roleChanges = roleRecords.length
         totalRecords += roleRecords.length
+        console.log(`Inserted ${roleRecords.length} role records`)
       }
     }
 
     // 4. VIDEO UPLOADS - from player_profile_videos table (if exists)
     try {
-      const { data: videos } = await customerClient
+      console.log('Fetching video uploads...')
+      const { data: videos, error: videosError } = await customerClient
         .from('player_profile_videos')
         .select('id, created_at, player_id')
         .gte('created_at', cutoffDate)
 
-      if (videos && videos.length > 0) {
+      if (!videosError && videos && videos.length > 0) {
         // Get player -> guardian mapping to attribute to profile
         const { data: players } = await customerClient
           .from('players')
@@ -1532,6 +1594,7 @@ export async function refreshActivityData(
           if (!insertError) {
             breakdown.videos = videoRecords.length
             totalRecords += videoRecords.length
+            console.log(`Inserted ${videoRecords.length} video records`)
           }
         }
       }
@@ -1541,12 +1604,13 @@ export async function refreshActivityData(
 
     // 5. MESSAGES SENT - from thread_messages table (if exists)
     try {
-      const { data: messages } = await customerClient
+      console.log('Fetching messages...')
+      const { data: messages, error: messagesError } = await customerClient
         .from('thread_messages')
         .select('id, created_at, sender_id, thread_id')
         .gte('created_at', cutoffDate)
 
-      if (messages && messages.length > 0) {
+      if (!messagesError && messages && messages.length > 0) {
         const messageRecords = messages.map(m => ({
           profile_id: m.sender_id,
           event_type: 'message_sent',
@@ -1561,6 +1625,7 @@ export async function refreshActivityData(
         if (!insertError) {
           breakdown.messages = messageRecords.length
           totalRecords += messageRecords.length
+          console.log(`Inserted ${messageRecords.length} message records`)
         }
       }
     } catch {
@@ -1569,12 +1634,13 @@ export async function refreshActivityData(
 
     // 6. ASSESSMENTS - from assessments table (if exists)
     try {
-      const { data: assessments } = await customerClient
+      console.log('Fetching assessments...')
+      const { data: assessments, error: assessmentsError } = await customerClient
         .from('assessments')
         .select('id, created_at, created_by, organization_id')
         .gte('created_at', cutoffDate)
 
-      if (assessments && assessments.length > 0) {
+      if (!assessmentsError && assessments && assessments.length > 0) {
         const assessmentRecords = assessments.map(a => ({
           profile_id: a.created_by,
           organization_id: a.organization_id,
@@ -1590,30 +1656,28 @@ export async function refreshActivityData(
         if (!insertError) {
           breakdown.assessments = assessmentRecords.length
           totalRecords += assessmentRecords.length
+          console.log(`Inserted ${assessmentRecords.length} assessment records`)
         }
       }
     } catch {
       console.log('assessments table not found, skipping')
     }
 
-    // 7. Try to get login activity from auth schema (may not have access)
+    // 7. Profile activity (as login proxy)
     try {
-      // Note: This requires service role key and auth schema access
-      // Most Supabase projects don't expose this directly
-      // We'll try profiles.updated_at as a proxy for activity
+      console.log('Fetching profile activity...')
       const { data: recentProfiles } = await customerClient
         .from('profiles')
-        .select('id, updated_at')
+        .select('id, updated_at, created_at')
         .gte('updated_at', cutoffDate)
-        .not('updated_at', 'eq', 'created_at') // Exclude signups
 
       if (recentProfiles && recentProfiles.length > 0) {
-        // Filter out records that would be duplicates (same profile/timestamp as signup)
+        // Only include profiles where updated_at != created_at (actual updates, not just signups)
         const loginRecords = recentProfiles
-          .filter(p => p.updated_at !== p.id) // Basic dedup
+          .filter(p => p.updated_at && p.created_at && p.updated_at !== p.created_at)
           .map(p => ({
             profile_id: p.id,
-            event_type: 'login',
+            event_type: 'profile_update',
             timestamp: p.updated_at,
             metadata: { source: 'profile_update' },
           }))
@@ -1626,17 +1690,38 @@ export async function refreshActivityData(
           if (!insertError) {
             breakdown.logins = loginRecords.length
             totalRecords += loginRecords.length
+            console.log(`Inserted ${loginRecords.length} profile update records`)
           }
         }
       }
     } catch {
-      console.log('Could not fetch login data')
+      console.log('Could not fetch profile updates')
     }
 
-    return {
-      success: true,
-      totalRecords,
-      breakdown,
+    console.log(`Refresh complete: ${totalRecords} total records inserted`)
+    console.log('Breakdown:', breakdown)
+
+    // Return success even if some tables failed, as long as we got some data
+    if (totalRecords > 0) {
+      return {
+        success: true,
+        totalRecords,
+        breakdown,
+      }
+    } else if (errors.length > 0) {
+      return {
+        success: false,
+        totalRecords: 0,
+        breakdown,
+        error: errors.join('; '),
+      }
+    } else {
+      return {
+        success: true,
+        totalRecords: 0,
+        breakdown,
+        error: 'No activity data found in the last 90 days',
+      }
     }
   } catch (err) {
     console.error('Error refreshing activity data:', err)
