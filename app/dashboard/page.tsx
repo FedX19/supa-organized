@@ -14,6 +14,7 @@ import {
   fetchRevenueDataFromCustomerDB,
   getOrgTypeDisplay,
   logAuditEvent,
+  refreshActivityData,
   OrganizationCard,
   OrganizationDetail,
   OrganizationType,
@@ -25,6 +26,7 @@ import {
   DateRange,
   ActivityEventDetail,
   RealRevenueData,
+  RefreshActivityResult,
 } from '@/lib/supabase'
 import { Sidebar, MobileMenuButton } from '@/components/Sidebar'
 import { StatCard } from '@/components/StatCard'
@@ -129,6 +131,8 @@ function DashboardContent() {
   const [analyticsData, setAnalyticsData] = useState<AnalyticsData>({ activities: [], hasTable: false })
   const [analyticsLoading, setAnalyticsLoading] = useState(false)
   const [dateRange, setDateRange] = useState<DateRange>('30d')
+  const [isRefreshing, setIsRefreshing] = useState(false)
+  const [lastRefreshTime, setLastRefreshTime] = useState<Date | null>(null)
 
   // Revenue data
   const [revenueData, setRevenueData] = useState<RealRevenueData>({
@@ -363,6 +367,66 @@ function DashboardContent() {
 
     loadRevenue()
   }, [connection, sidebarView, getValidAccessToken])
+
+  // Handle refresh activity data
+  const handleRefreshActivityData = useCallback(async (): Promise<RefreshActivityResult> => {
+    if (!connection) {
+      return { success: false, totalRecords: 0, breakdown: { signups: 0, logins: 0, joinOrg: 0, leaveOrg: 0, roleChanges: 0, videos: 0, messages: 0, assessments: 0 }, error: 'No connection' }
+    }
+
+    setIsRefreshing(true)
+
+    try {
+      const token = await getValidAccessToken()
+      if (!token) throw new Error('Session expired')
+
+      const response = await fetch('/api/decrypt', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify({ encrypted: connection.encrypted_key }),
+      })
+
+      if (!response.ok) throw new Error('Failed to decrypt')
+
+      const { decrypted } = await response.json()
+      const customerClient = createCustomerSupabaseClient(connection.supabase_url, decrypted)
+
+      // Refresh the activity data
+      const result = await refreshActivityData(customerClient)
+
+      if (result.success) {
+        setLastRefreshTime(new Date())
+
+        // Log the refresh action
+        logAuditEvent({
+          actionType: 'run_diagnostic',
+          actionCategory: 'analytics',
+          targetType: 'activity_data',
+          targetName: 'Refresh Activity Data',
+          details: { totalRecords: result.totalRecords, breakdown: result.breakdown },
+        })
+
+        // Reload analytics data to show updated results
+        const updatedData = await fetchUserActivity(customerClient, dateRange)
+        setAnalyticsData(updatedData)
+      }
+
+      return result
+    } catch (error) {
+      console.error('Refresh error:', error)
+      return {
+        success: false,
+        totalRecords: 0,
+        breakdown: { signups: 0, logins: 0, joinOrg: 0, leaveOrg: 0, roleChanges: 0, videos: 0, messages: 0, assessments: 0 },
+        error: error instanceof Error ? error.message : 'Unknown error',
+      }
+    } finally {
+      setIsRefreshing(false)
+    }
+  }, [connection, getValidAccessToken, dateRange])
 
   // Load org detail when selected
   useEffect(() => {
@@ -776,6 +840,9 @@ function DashboardContent() {
               onDateRangeChange={setDateRange}
               isLoading={analyticsLoading || dataLoading}
               onFetchUserActivities={handleFetchUserActivities}
+              onRefreshData={handleRefreshActivityData}
+              isRefreshing={isRefreshing}
+              lastRefreshTime={lastRefreshTime}
             />
           ) : (
             <div className="bg-dark-card border border-dark-border rounded-lg p-8 text-center">

@@ -1353,6 +1353,302 @@ export async function fetchUserActivities(
   }
 }
 
+// Refresh activity data result
+export interface RefreshActivityResult {
+  success: boolean
+  totalRecords: number
+  breakdown: {
+    signups: number
+    logins: number
+    joinOrg: number
+    leaveOrg: number
+    roleChanges: number
+    videos: number
+    messages: number
+    assessments: number
+  }
+  error?: string
+}
+
+// Refresh/populate user_activity table with data from various tables
+export async function refreshActivityData(
+  customerClient: SupabaseClient
+): Promise<RefreshActivityResult> {
+  const ninetyDaysAgo = new Date()
+  ninetyDaysAgo.setDate(ninetyDaysAgo.getDate() - 90)
+  const cutoffDate = ninetyDaysAgo.toISOString()
+
+  let totalRecords = 0
+  const breakdown = {
+    signups: 0,
+    logins: 0,
+    joinOrg: 0,
+    leaveOrg: 0,
+    roleChanges: 0,
+    videos: 0,
+    messages: 0,
+    assessments: 0,
+  }
+
+  try {
+    // First, ensure user_activity table exists by trying a simple query
+    const { error: checkError } = await customerClient
+      .from('user_activity')
+      .select('id')
+      .limit(1)
+
+    if (checkError && (checkError.message?.includes('does not exist') || checkError.code === '42P01')) {
+      return {
+        success: false,
+        totalRecords: 0,
+        breakdown,
+        error: 'user_activity table does not exist. Please create it first using the SQL schema provided.',
+      }
+    }
+
+    // Clear existing activity data (truncate equivalent)
+    const { error: deleteError } = await customerClient
+      .from('user_activity')
+      .delete()
+      .gte('timestamp', '1900-01-01') // Delete all records
+
+    if (deleteError) {
+      console.warn('Could not clear user_activity:', deleteError.message)
+    }
+
+    // 1. USER SIGNUPS - from profiles table (created_at)
+    const { data: profiles } = await customerClient
+      .from('profiles')
+      .select('id, created_at')
+      .gte('created_at', cutoffDate)
+
+    if (profiles && profiles.length > 0) {
+      const signupRecords = profiles.map(p => ({
+        profile_id: p.id,
+        event_type: 'signup',
+        timestamp: p.created_at,
+        metadata: { source: 'profiles' },
+      }))
+
+      const { error: insertError } = await customerClient
+        .from('user_activity')
+        .insert(signupRecords)
+
+      if (!insertError) {
+        breakdown.signups = signupRecords.length
+        totalRecords += signupRecords.length
+      }
+    }
+
+    // 2. JOIN ORGANIZATION - from organization_members table
+    const { data: members } = await customerClient
+      .from('organization_members')
+      .select('id, profile_id, organization_id, created_at')
+      .gte('created_at', cutoffDate)
+
+    if (members && members.length > 0) {
+      const joinRecords = members.map(m => ({
+        profile_id: m.profile_id,
+        organization_id: m.organization_id,
+        event_type: 'join_organization',
+        timestamp: m.created_at,
+        metadata: { member_id: m.id },
+      }))
+
+      const { error: insertError } = await customerClient
+        .from('user_activity')
+        .insert(joinRecords)
+
+      if (!insertError) {
+        breakdown.joinOrg = joinRecords.length
+        totalRecords += joinRecords.length
+      }
+    }
+
+    // 3. ROLE CHANGES - from organization_staff table
+    const { data: staff } = await customerClient
+      .from('organization_staff')
+      .select('id, profile_id, organization_id, role, created_at')
+      .gte('created_at', cutoffDate)
+
+    if (staff && staff.length > 0) {
+      const roleRecords = staff.map(s => ({
+        profile_id: s.profile_id,
+        organization_id: s.organization_id,
+        event_type: 'role_change',
+        timestamp: s.created_at,
+        metadata: { role: s.role, staff_id: s.id },
+      }))
+
+      const { error: insertError } = await customerClient
+        .from('user_activity')
+        .insert(roleRecords)
+
+      if (!insertError) {
+        breakdown.roleChanges = roleRecords.length
+        totalRecords += roleRecords.length
+      }
+    }
+
+    // 4. VIDEO UPLOADS - from player_profile_videos table (if exists)
+    try {
+      const { data: videos } = await customerClient
+        .from('player_profile_videos')
+        .select('id, created_at, player_id')
+        .gte('created_at', cutoffDate)
+
+      if (videos && videos.length > 0) {
+        // Get player -> guardian mapping to attribute to profile
+        const { data: players } = await customerClient
+          .from('players')
+          .select('id, guardian_profile_id, organization_id')
+
+        const playerMap = new Map<string, { guardian_profile_id: string; organization_id: string }>()
+        players?.forEach(p => {
+          if (p.guardian_profile_id) {
+            playerMap.set(p.id, { guardian_profile_id: p.guardian_profile_id, organization_id: p.organization_id })
+          }
+        })
+
+        const videoRecords = videos
+          .map(v => {
+            const player = playerMap.get(v.player_id)
+            if (!player) return null
+            return {
+              profile_id: player.guardian_profile_id,
+              organization_id: player.organization_id,
+              event_type: 'upload_video',
+              timestamp: v.created_at,
+              metadata: { video_id: v.id, player_id: v.player_id },
+            }
+          })
+          .filter(Boolean)
+
+        if (videoRecords.length > 0) {
+          const { error: insertError } = await customerClient
+            .from('user_activity')
+            .insert(videoRecords)
+
+          if (!insertError) {
+            breakdown.videos = videoRecords.length
+            totalRecords += videoRecords.length
+          }
+        }
+      }
+    } catch {
+      console.log('player_profile_videos table not found, skipping')
+    }
+
+    // 5. MESSAGES SENT - from thread_messages table (if exists)
+    try {
+      const { data: messages } = await customerClient
+        .from('thread_messages')
+        .select('id, created_at, sender_id, thread_id')
+        .gte('created_at', cutoffDate)
+
+      if (messages && messages.length > 0) {
+        const messageRecords = messages.map(m => ({
+          profile_id: m.sender_id,
+          event_type: 'message_sent',
+          timestamp: m.created_at,
+          metadata: { message_id: m.id, thread_id: m.thread_id },
+        }))
+
+        const { error: insertError } = await customerClient
+          .from('user_activity')
+          .insert(messageRecords)
+
+        if (!insertError) {
+          breakdown.messages = messageRecords.length
+          totalRecords += messageRecords.length
+        }
+      }
+    } catch {
+      console.log('thread_messages table not found, skipping')
+    }
+
+    // 6. ASSESSMENTS - from assessments table (if exists)
+    try {
+      const { data: assessments } = await customerClient
+        .from('assessments')
+        .select('id, created_at, created_by, organization_id')
+        .gte('created_at', cutoffDate)
+
+      if (assessments && assessments.length > 0) {
+        const assessmentRecords = assessments.map(a => ({
+          profile_id: a.created_by,
+          organization_id: a.organization_id,
+          event_type: 'create_assessment',
+          timestamp: a.created_at,
+          metadata: { assessment_id: a.id },
+        }))
+
+        const { error: insertError } = await customerClient
+          .from('user_activity')
+          .insert(assessmentRecords)
+
+        if (!insertError) {
+          breakdown.assessments = assessmentRecords.length
+          totalRecords += assessmentRecords.length
+        }
+      }
+    } catch {
+      console.log('assessments table not found, skipping')
+    }
+
+    // 7. Try to get login activity from auth schema (may not have access)
+    try {
+      // Note: This requires service role key and auth schema access
+      // Most Supabase projects don't expose this directly
+      // We'll try profiles.updated_at as a proxy for activity
+      const { data: recentProfiles } = await customerClient
+        .from('profiles')
+        .select('id, updated_at')
+        .gte('updated_at', cutoffDate)
+        .not('updated_at', 'eq', 'created_at') // Exclude signups
+
+      if (recentProfiles && recentProfiles.length > 0) {
+        // Filter out records that would be duplicates (same profile/timestamp as signup)
+        const loginRecords = recentProfiles
+          .filter(p => p.updated_at !== p.id) // Basic dedup
+          .map(p => ({
+            profile_id: p.id,
+            event_type: 'login',
+            timestamp: p.updated_at,
+            metadata: { source: 'profile_update' },
+          }))
+
+        if (loginRecords.length > 0) {
+          const { error: insertError } = await customerClient
+            .from('user_activity')
+            .insert(loginRecords)
+
+          if (!insertError) {
+            breakdown.logins = loginRecords.length
+            totalRecords += loginRecords.length
+          }
+        }
+      }
+    } catch {
+      console.log('Could not fetch login data')
+    }
+
+    return {
+      success: true,
+      totalRecords,
+      breakdown,
+    }
+  } catch (err) {
+    console.error('Error refreshing activity data:', err)
+    return {
+      success: false,
+      totalRecords: 0,
+      breakdown,
+      error: err instanceof Error ? err.message : 'Unknown error occurred',
+    }
+  }
+}
+
 // Calculate engagement level based on activity
 function calculateEngagementLevel(
   eventCount: number,

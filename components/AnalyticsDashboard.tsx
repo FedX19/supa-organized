@@ -9,6 +9,7 @@ import {
   generateAnalyticsSummary,
   UserEngagement,
   exportToCSV,
+  RefreshActivityResult,
 } from '@/lib/supabase'
 import UserActivityDetail, { ActivityEvent } from '@/components/UserActivityDetail'
 
@@ -19,6 +20,9 @@ interface AnalyticsDashboardProps {
   onDateRangeChange: (range: DateRange) => void
   isLoading: boolean
   onFetchUserActivities?: (profileId: string) => Promise<ActivityEvent[]>
+  onRefreshData?: () => Promise<RefreshActivityResult>
+  isRefreshing?: boolean
+  lastRefreshTime?: Date | null
 }
 
 export default function AnalyticsDashboard({
@@ -28,10 +32,40 @@ export default function AnalyticsDashboard({
   onDateRangeChange,
   isLoading,
   onFetchUserActivities,
+  onRefreshData,
+  isRefreshing = false,
+  lastRefreshTime,
 }: AnalyticsDashboardProps) {
   const [activeSection, setActiveSection] = useState<'overview' | 'users' | 'orgs' | 'features' | 'dormant'>('overview')
   const [selectedUser, setSelectedUser] = useState<UserEngagement | null>(null)
   const [isDetailOpen, setIsDetailOpen] = useState(false)
+  const [refreshResult, setRefreshResult] = useState<RefreshActivityResult | null>(null)
+  const [showRefreshToast, setShowRefreshToast] = useState(false)
+
+  const handleRefresh = useCallback(async () => {
+    if (!onRefreshData || isRefreshing) return
+
+    setRefreshResult(null)
+    const result = await onRefreshData()
+    setRefreshResult(result)
+    setShowRefreshToast(true)
+
+    // Auto-hide toast after 5 seconds
+    setTimeout(() => setShowRefreshToast(false), 5000)
+  }, [onRefreshData, isRefreshing])
+
+  const formatLastRefresh = (date: Date | null | undefined): string => {
+    if (!date) return 'Never'
+    const now = new Date()
+    const diffMs = now.getTime() - date.getTime()
+    const diffMins = Math.floor(diffMs / 60000)
+    const diffHours = Math.floor(diffMs / 3600000)
+
+    if (diffMins < 1) return 'Just now'
+    if (diffMins < 60) return `${diffMins}m ago`
+    if (diffHours < 24) return `${diffHours}h ago`
+    return date.toLocaleDateString()
+  }
 
   const handleUserClick = useCallback((user: UserEngagement) => {
     setSelectedUser(user)
@@ -207,31 +241,113 @@ CREATE INDEX idx_user_activity_timestamp
   // Main analytics view
   return (
     <div className="space-y-4 md:space-y-6 animate-fadeIn">
-      {/* Header with Date Range */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-        <div className="flex gap-2 overflow-x-auto pb-2 sm:pb-0 -mx-4 px-4 sm:mx-0 sm:px-0">
-          {(['overview', 'users', 'orgs', 'features', 'dormant'] as const).map((section) => (
-            <button
-              key={section}
-              onClick={() => setActiveSection(section)}
-              className={`px-3 md:px-4 py-2 rounded-lg font-medium capitalize transition-colors whitespace-nowrap min-h-[44px] text-sm md:text-base ${
-                activeSection === section
-                  ? 'bg-primary text-black'
-                  : 'bg-dark-card border border-dark-border text-gray-400 hover:text-white'
-              }`}
-            >
-              {section}
-              {section === 'dormant' && summary && summary.dormantUsers > 0 && (
-                <span className={`ml-2 px-2 py-0.5 text-xs rounded-full ${
-                  activeSection === section ? 'bg-black/20' : 'bg-red-500/20 text-red-400'
-                }`}>
-                  {summary.dormantUsers}
-                </span>
-              )}
-            </button>
-          ))}
+      {/* Refresh Toast */}
+      {showRefreshToast && refreshResult && (
+        <div className={`fixed top-4 right-4 z-50 px-4 py-3 rounded-lg shadow-lg flex items-center gap-3 animate-fadeIn ${
+          refreshResult.success ? 'bg-green-600' : 'bg-red-600'
+        }`}>
+          {refreshResult.success ? (
+            <>
+              <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+              </svg>
+              <span className="text-white font-medium">
+                Data refreshed: {refreshResult.totalRecords} records synced
+              </span>
+            </>
+          ) : (
+            <>
+              <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+              <span className="text-white font-medium">
+                Refresh failed: {refreshResult.error}
+              </span>
+            </>
+          )}
+          <button
+            onClick={() => setShowRefreshToast(false)}
+            className="text-white/80 hover:text-white"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
         </div>
-        <DateRangeSelector value={dateRange} onChange={onDateRangeChange} options={dateRangeOptions} />
+      )}
+
+      {/* Header with Date Range and Refresh */}
+      <div className="flex flex-col gap-3">
+        {/* Refresh Button Row */}
+        {onRefreshData && (
+          <div className="flex items-center justify-between bg-dark-card border border-dark-border rounded-lg p-3">
+            <div className="flex items-center gap-3">
+              <button
+                onClick={handleRefresh}
+                disabled={isRefreshing}
+                className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-all ${
+                  isRefreshing
+                    ? 'bg-orange-500/50 text-orange-200 cursor-not-allowed'
+                    : 'bg-orange-500 text-white hover:bg-orange-600 active:scale-95'
+                }`}
+              >
+                {isRefreshing ? (
+                  <>
+                    <svg className="w-5 h-5 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                    </svg>
+                    <span>Refreshing...</span>
+                  </>
+                ) : (
+                  <>
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                    </svg>
+                    <span>Refresh Data</span>
+                  </>
+                )}
+              </button>
+              <span className="text-sm text-gray-400">
+                Last refreshed: {formatLastRefresh(lastRefreshTime)}
+              </span>
+            </div>
+            {refreshResult && refreshResult.success && (
+              <div className="hidden md:flex items-center gap-4 text-sm text-gray-400">
+                <span>Signups: {refreshResult.breakdown.signups}</span>
+                <span>Joins: {refreshResult.breakdown.joinOrg}</span>
+                <span>Role Changes: {refreshResult.breakdown.roleChanges}</span>
+                {refreshResult.breakdown.messages > 0 && <span>Messages: {refreshResult.breakdown.messages}</span>}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Tabs and Date Range */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="flex gap-2 overflow-x-auto pb-2 sm:pb-0 -mx-4 px-4 sm:mx-0 sm:px-0">
+            {(['overview', 'users', 'orgs', 'features', 'dormant'] as const).map((section) => (
+              <button
+                key={section}
+                onClick={() => setActiveSection(section)}
+                className={`px-3 md:px-4 py-2 rounded-lg font-medium capitalize transition-colors whitespace-nowrap min-h-[44px] text-sm md:text-base ${
+                  activeSection === section
+                    ? 'bg-primary text-black'
+                    : 'bg-dark-card border border-dark-border text-gray-400 hover:text-white'
+                }`}
+              >
+                {section}
+                {section === 'dormant' && summary && summary.dormantUsers > 0 && (
+                  <span className={`ml-2 px-2 py-0.5 text-xs rounded-full ${
+                    activeSection === section ? 'bg-black/20' : 'bg-red-500/20 text-red-400'
+                  }`}>
+                    {summary.dormantUsers}
+                  </span>
+                )}
+              </button>
+            ))}
+          </div>
+          <DateRangeSelector value={dateRange} onChange={onDateRangeChange} options={dateRangeOptions} />
+        </div>
       </div>
 
       {summary && (
