@@ -13,6 +13,7 @@ import {
   getIssueSummary,
   fetchRevenueDataFromCustomerDB,
   getOrgTypeDisplay,
+  logAuditEvent,
   OrganizationCard,
   OrganizationDetail,
   OrganizationType,
@@ -38,8 +39,9 @@ import ExportTools from '@/components/ExportTools'
 import AnalyticsDashboard from '@/components/AnalyticsDashboard'
 import ConnectionsPanel from '@/components/ConnectionsPanel'
 import RevenueDashboard from '@/components/RevenueDashboard'
+import ActivityLog from '@/components/ActivityLog'
 
-type SidebarView = 'dashboard' | 'analytics' | 'connections' | 'revenue'
+type SidebarView = 'dashboard' | 'analytics' | 'connections' | 'revenue' | 'activity'
 type Tab = 'organizations' | 'users' | 'issues' | 'relationships' | 'export'
 type OrgView = 'grid' | 'detail'
 type UserView = 'search' | 'profile' | 'diagnostic'
@@ -432,11 +434,30 @@ function DashboardContent() {
       }
 
       setConnection(result.connection)
+      // Log successful connection
+      logAuditEvent({
+        actionType: 'database_connect',
+        actionCategory: 'connection',
+        targetType: 'database',
+        targetName: data.connectionName,
+        details: { url: data.supabaseUrl },
+        success: true,
+      })
       // Navigate to dashboard after connecting
       router.push('/dashboard')
     } catch (error) {
       console.error('Connect error:', error)
-      setConnectError(error instanceof Error ? error.message : 'Failed to connect')
+      const errorMsg = error instanceof Error ? error.message : 'Failed to connect'
+      setConnectError(errorMsg)
+      // Log failed connection
+      logAuditEvent({
+        actionType: 'database_connect',
+        actionCategory: 'connection',
+        targetType: 'database',
+        targetName: data.connectionName,
+        success: false,
+        errorMessage: errorMsg,
+      })
     } finally {
       setConnecting(false)
     }
@@ -444,6 +465,7 @@ function DashboardContent() {
 
   // Handle disconnect
   const handleDisconnect = async () => {
+    const connectionName = connection?.connection_name
     try {
       const token = await getValidAccessToken()
       if (!token) {
@@ -459,6 +481,15 @@ function DashboardContent() {
       if (!response.ok) {
         throw new Error('Failed to disconnect')
       }
+
+      // Log disconnection
+      logAuditEvent({
+        actionType: 'database_disconnect',
+        actionCategory: 'connection',
+        targetType: 'database',
+        targetName: connectionName || 'Unknown',
+        success: true,
+      })
 
       setConnection(null)
       setOrganizations([])
@@ -556,6 +587,17 @@ function DashboardContent() {
 
   // Handle org card click
   const handleOrgClick = (orgId: string) => {
+    const org = organizations.find(o => o.id === orgId)
+    // Log organization view
+    logAuditEvent({
+      actionType: 'view_organization',
+      actionCategory: 'navigation',
+      targetType: 'organization',
+      targetId: orgId,
+      targetName: org?.name || 'Unknown',
+      organizationId: orgId,
+      organizationName: org?.name,
+    })
     setSelectedOrgId(orgId)
     setOrgView('detail')
     setSearchQuery('')
@@ -571,12 +613,30 @@ function DashboardContent() {
 
   // Handle user profile selection
   const handleSelectUser = (profile: UserProfile) => {
+    // Log user profile view
+    logAuditEvent({
+      actionType: 'view_user_profile',
+      actionCategory: 'navigation',
+      targetType: 'user',
+      targetId: profile.id,
+      targetName: profile.fullName,
+      details: { email: profile.email },
+    })
     setSelectedUserProfile(profile)
     setUserView('profile')
   }
 
   // Handle view diagnostic
   const handleViewDiagnostic = (diagnostic: UserPermissionDiagnostic) => {
+    // Log diagnostic view
+    logAuditEvent({
+      actionType: 'run_diagnostic',
+      actionCategory: 'diagnostic',
+      targetType: 'user',
+      targetId: diagnostic.profile.id,
+      targetName: diagnostic.profile.fullName,
+      details: { issueCount: diagnostic.issues.length },
+    })
     setUserDiagnostic(diagnostic)
     setUserView('diagnostic')
   }
@@ -652,6 +712,7 @@ function DashboardContent() {
     if (sidebarView === 'analytics') return 'Analytics'
     if (sidebarView === 'connections') return 'Connections'
     if (sidebarView === 'revenue') return 'Revenue Dashboard'
+    if (sidebarView === 'activity') return 'Activity Log'
 
     // Dashboard view titles
     if (activeTab === 'organizations') {
@@ -772,6 +833,11 @@ function DashboardContent() {
               </a>
             </div>
           )
+        )}
+
+        {/* Activity Log View */}
+        {sidebarView === 'activity' && (
+          <ActivityLog />
         )}
 
         {/* Dashboard View */}

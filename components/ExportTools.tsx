@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useMemo } from 'react'
-import { RawDiagnosticData, exportToCSV, generateUserExportSQL, detectOrganizationType, getOrgTypeDisplay } from '@/lib/supabase'
+import { RawDiagnosticData, exportToCSV, generateUserExportSQL, detectOrganizationType, getOrgTypeDisplay, logAuditEvent } from '@/lib/supabase'
 
 interface ExportToolsProps {
   data: RawDiagnosticData
@@ -29,10 +29,30 @@ export default function ExportTools({ data }: ExportToolsProps) {
     return map
   }, [data.organizations])
 
+  // Count members+staff per org for type detection
+  const memberCountByOrg = useMemo(() => {
+    const counts = new Map<string, number>()
+    data.members.forEach(m => {
+      counts.set(m.organization_id, (counts.get(m.organization_id) || 0) + 1)
+    })
+    data.staff.forEach(s => {
+      counts.set(s.organization_id, (counts.get(s.organization_id) || 0) + 1)
+    })
+    return counts
+  }, [data.members, data.staff])
+
   const copyToClipboard = (text: string, id: string) => {
     navigator.clipboard.writeText(text)
     setCopiedSql(id)
     setTimeout(() => setCopiedSql(null), 2000)
+    // Log SQL copy
+    logAuditEvent({
+      actionType: 'copy_sql',
+      actionCategory: 'export',
+      targetType: 'sql',
+      targetName: id,
+      details: { length: text.length },
+    })
   }
 
   const downloadCSV = (type: ExportType) => {
@@ -56,7 +76,8 @@ export default function ExportTools({ data }: ExportToolsProps) {
       case 'organizations':
         csvData = exportToCSV(
           data.organizations.map(o => {
-            const orgType = detectOrganizationType(o)
+            const totalPeople = memberCountByOrg.get(o.id) || 0
+            const orgType = detectOrganizationType(o, totalPeople)
             const typeDisplay = getOrgTypeDisplay(orgType)
             return {
               name: o.name,
@@ -169,6 +190,15 @@ export default function ExportTools({ data }: ExportToolsProps) {
         filename = 'all_users_comprehensive.csv'
         break
     }
+
+    // Log CSV export
+    logAuditEvent({
+      actionType: 'export_csv',
+      actionCategory: 'export',
+      targetType: type,
+      targetName: filename,
+      details: { recordCount: csvData.split('\n').length - 1 },
+    })
 
     // Create and download file
     const blob = new Blob([csvData], { type: 'text/csv;charset=utf-8;' })
