@@ -394,7 +394,8 @@ export async function testCustomerConnection(url: string, serviceRoleKey: string
 }
 
 // Helper function to detect/normalize organization type
-export function detectOrganizationType(org: Organization): OrganizationType {
+// memberCount is optional - used to differentiate orgs with same name
+export function detectOrganizationType(org: Organization, memberCount?: number): OrganizationType {
   // Check explicit type fields first
   const rawType = (org.type || org.organization_type || '').toLowerCase().trim()
 
@@ -409,8 +410,12 @@ export function detectOrganizationType(org: Organization): OrganizationType {
   const nameLower = org.name.toLowerCase()
 
   if (nameLower.includes('modern day coach')) {
-    // Modern Day Coach can be OPERATIONS or INDIVIDUAL
-    // Default to INDIVIDUAL for revenue purposes
+    // Two "Modern Day Coach" orgs exist:
+    // - One with ~28 members = INDIVIDUAL (main individual membership org)
+    // - One with ~4 members = OPERATIONS (internal operations/admin org)
+    if (memberCount !== undefined && memberCount <= 5) {
+      return 'operations'
+    }
     return 'individual'
   }
   if (nameLower.includes('academy') || nameLower.includes('training') || nameLower.includes('school')) {
@@ -473,15 +478,17 @@ export async function fetchOrganizationCards(
     const orgStaff = staff.filter(s => s.organization_id === org.id)
     const orgMembers = members.filter(m => m.organization_id === org.id)
     const orgPlayers = players.filter(p => p.organization_id === org.id)
+    const totalPeople = orgStaff.length + orgMembers.length
 
     return {
       id: org.id,
       name: org.name,
-      type: detectOrganizationType(org),
+      // Pass total people count to help differentiate orgs with same name
+      type: detectOrganizationType(org, totalPeople),
       staffCount: orgStaff.length,
       memberCount: orgMembers.length,
       playerCount: orgPlayers.length,
-      totalPeople: orgStaff.length + orgMembers.length,
+      totalPeople,
     }
   })
 
@@ -578,10 +585,13 @@ export async function fetchOrganizationDetail(
     }
   })
 
+  // Total people count for type detection (staff + regular members)
+  const totalPeople = staff.length + regularMembers.length
+
   return {
     id: org.id,
     name: org.name,
-    type: detectOrganizationType(org),
+    type: detectOrganizationType(org, totalPeople),
     admins,
     coaches,
     staff: otherStaff,
@@ -1918,10 +1928,20 @@ export async function fetchRevenueDataFromCustomerDB(
     const profileMap = new Map<string, { id: string; full_name: string | null; email: string | null; created_at: string }>()
     profiles.forEach(p => profileMap.set(p.id, p))
 
-    // Build org map with type detection
+    // Count members per org for type detection
+    const memberCountByOrg = new Map<string, number>()
+    members.forEach(m => {
+      memberCountByOrg.set(m.organization_id, (memberCountByOrg.get(m.organization_id) || 0) + 1)
+    })
+    staff.forEach(s => {
+      memberCountByOrg.set(s.organization_id, (memberCountByOrg.get(s.organization_id) || 0) + 1)
+    })
+
+    // Build org map with type detection (passing member count for disambiguation)
     const orgMap = new Map<string, { id: string; name: string; type: OrganizationType; created_at: string }>()
     organizations.forEach(o => {
-      const orgType = detectOrganizationType(o)
+      const totalPeople = memberCountByOrg.get(o.id) || 0
+      const orgType = detectOrganizationType(o, totalPeople)
       orgMap.set(o.id, { ...o, type: orgType })
     })
 
@@ -2117,4 +2137,296 @@ function generateGrowthData(
   }
 
   return growthData
+}
+
+// ========== AUDIT LOG TYPES ==========
+
+/*
+ * Audit Log Schema for SupaOrganized's own database:
+ *
+ * CREATE TABLE IF NOT EXISTS audit_logs (
+ *   id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+ *   timestamp TIMESTAMPTZ DEFAULT NOW() NOT NULL,
+ *   admin_user_id UUID REFERENCES auth.users(id),
+ *   admin_email TEXT,
+ *   action_type TEXT NOT NULL,
+ *   action_category TEXT NOT NULL,
+ *   target_type TEXT,
+ *   target_id TEXT,
+ *   target_name TEXT,
+ *   organization_id TEXT,
+ *   organization_name TEXT,
+ *   details JSONB,
+ *   success BOOLEAN DEFAULT TRUE,
+ *   error_message TEXT,
+ *   ip_address TEXT,
+ *   user_agent TEXT,
+ *   created_at TIMESTAMPTZ DEFAULT NOW()
+ * );
+ *
+ * CREATE INDEX idx_audit_logs_timestamp ON audit_logs(timestamp DESC);
+ * CREATE INDEX idx_audit_logs_admin ON audit_logs(admin_user_id);
+ * CREATE INDEX idx_audit_logs_action ON audit_logs(action_type);
+ * CREATE INDEX idx_audit_logs_category ON audit_logs(action_category);
+ */
+
+export type AuditActionCategory =
+  | 'connection'    // Database connections
+  | 'navigation'    // Page views, org views
+  | 'search'        // User searches
+  | 'export'        // Data exports
+  | 'analytics'     // Analytics views
+  | 'diagnostic'    // Issue diagnostics
+  | 'revenue'       // Revenue views
+  | 'settings'      // Settings changes
+
+export type AuditActionType =
+  // Connection actions
+  | 'database_connect'
+  | 'database_disconnect'
+  | 'connection_test'
+  // Navigation actions
+  | 'view_dashboard'
+  | 'view_organization'
+  | 'view_user_profile'
+  | 'view_analytics'
+  | 'view_issues'
+  | 'view_revenue'
+  | 'view_activity_log'
+  // Search actions
+  | 'search_users'
+  | 'search_organizations'
+  | 'filter_org_type'
+  // Export actions
+  | 'export_csv'
+  | 'export_sql'
+  | 'copy_sql'
+  // Diagnostic actions
+  | 'run_diagnostic'
+  | 'view_issue_detail'
+  // Settings actions
+  | 'update_settings'
+
+export interface AuditLogEntry {
+  id: string
+  timestamp: string
+  admin_user_id: string | null
+  admin_email: string | null
+  action_type: AuditActionType
+  action_category: AuditActionCategory
+  target_type: string | null
+  target_id: string | null
+  target_name: string | null
+  organization_id: string | null
+  organization_name: string | null
+  details: Record<string, unknown> | null
+  success: boolean
+  error_message: string | null
+}
+
+export interface AuditLogCreateParams {
+  actionType: AuditActionType
+  actionCategory: AuditActionCategory
+  targetType?: string
+  targetId?: string
+  targetName?: string
+  organizationId?: string
+  organizationName?: string
+  details?: Record<string, unknown>
+  success?: boolean
+  errorMessage?: string
+}
+
+export interface AuditLogFilters {
+  category?: AuditActionCategory | 'all'
+  actionType?: AuditActionType | 'all'
+  dateFrom?: string
+  dateTo?: string
+  searchQuery?: string
+}
+
+// Action type display info
+export function getActionTypeDisplay(actionType: AuditActionType): { label: string; icon: string; color: string } {
+  const displays: Record<AuditActionType, { label: string; icon: string; color: string }> = {
+    // Connection
+    database_connect: { label: 'Connected to Database', icon: '🔗', color: 'text-green-400' },
+    database_disconnect: { label: 'Disconnected from Database', icon: '🔌', color: 'text-orange-400' },
+    connection_test: { label: 'Tested Connection', icon: '🔍', color: 'text-blue-400' },
+    // Navigation
+    view_dashboard: { label: 'Viewed Dashboard', icon: '📊', color: 'text-slate-400' },
+    view_organization: { label: 'Viewed Organization', icon: '🏢', color: 'text-purple-400' },
+    view_user_profile: { label: 'Viewed User Profile', icon: '👤', color: 'text-blue-400' },
+    view_analytics: { label: 'Viewed Analytics', icon: '📈', color: 'text-cyan-400' },
+    view_issues: { label: 'Viewed Issues', icon: '⚠️', color: 'text-yellow-400' },
+    view_revenue: { label: 'Viewed Revenue', icon: '💰', color: 'text-emerald-400' },
+    view_activity_log: { label: 'Viewed Activity Log', icon: '📋', color: 'text-slate-400' },
+    // Search
+    search_users: { label: 'Searched Users', icon: '🔎', color: 'text-blue-400' },
+    search_organizations: { label: 'Searched Organizations', icon: '🔎', color: 'text-purple-400' },
+    filter_org_type: { label: 'Filtered by Org Type', icon: '🏷️', color: 'text-indigo-400' },
+    // Export
+    export_csv: { label: 'Exported CSV', icon: '📥', color: 'text-green-400' },
+    export_sql: { label: 'Exported SQL', icon: '📥', color: 'text-green-400' },
+    copy_sql: { label: 'Copied SQL', icon: '📋', color: 'text-slate-400' },
+    // Diagnostic
+    run_diagnostic: { label: 'Ran Diagnostic', icon: '🔧', color: 'text-orange-400' },
+    view_issue_detail: { label: 'Viewed Issue Detail', icon: '🔍', color: 'text-yellow-400' },
+    // Settings
+    update_settings: { label: 'Updated Settings', icon: '⚙️', color: 'text-slate-400' },
+  }
+  return displays[actionType] || { label: actionType, icon: '📝', color: 'text-slate-400' }
+}
+
+// Category display info
+export function getCategoryDisplay(category: AuditActionCategory): { label: string; color: string; bgColor: string } {
+  const displays: Record<AuditActionCategory, { label: string; color: string; bgColor: string }> = {
+    connection: { label: 'Connection', color: 'text-green-400', bgColor: 'bg-green-500/20' },
+    navigation: { label: 'Navigation', color: 'text-blue-400', bgColor: 'bg-blue-500/20' },
+    search: { label: 'Search', color: 'text-purple-400', bgColor: 'bg-purple-500/20' },
+    export: { label: 'Export', color: 'text-emerald-400', bgColor: 'bg-emerald-500/20' },
+    analytics: { label: 'Analytics', color: 'text-cyan-400', bgColor: 'bg-cyan-500/20' },
+    diagnostic: { label: 'Diagnostic', color: 'text-orange-400', bgColor: 'bg-orange-500/20' },
+    revenue: { label: 'Revenue', color: 'text-yellow-400', bgColor: 'bg-yellow-500/20' },
+    settings: { label: 'Settings', color: 'text-slate-400', bgColor: 'bg-slate-500/20' },
+  }
+  return displays[category] || { label: category, color: 'text-slate-400', bgColor: 'bg-slate-500/20' }
+}
+
+// In-memory audit log storage (for demo - would be database in production)
+let auditLogs: AuditLogEntry[] = []
+let logIdCounter = 0
+
+// Log an action to the audit log
+export async function logAuditEvent(params: AuditLogCreateParams): Promise<AuditLogEntry> {
+  const entry: AuditLogEntry = {
+    id: `log-${++logIdCounter}-${Date.now()}`,
+    timestamp: new Date().toISOString(),
+    admin_user_id: null, // Would come from auth in production
+    admin_email: null,   // Would come from auth in production
+    action_type: params.actionType,
+    action_category: params.actionCategory,
+    target_type: params.targetType || null,
+    target_id: params.targetId || null,
+    target_name: params.targetName || null,
+    organization_id: params.organizationId || null,
+    organization_name: params.organizationName || null,
+    details: params.details || null,
+    success: params.success ?? true,
+    error_message: params.errorMessage || null,
+  }
+
+  // Add to beginning of array (newest first)
+  auditLogs.unshift(entry)
+
+  // Keep only last 1000 entries in memory
+  if (auditLogs.length > 1000) {
+    auditLogs = auditLogs.slice(0, 1000)
+  }
+
+  console.log('[Audit]', entry.action_type, entry.target_name || entry.target_type || '')
+
+  return entry
+}
+
+// Fetch audit logs with optional filters
+export function fetchAuditLogs(filters?: AuditLogFilters): AuditLogEntry[] {
+  let logs = [...auditLogs]
+
+  if (filters) {
+    // Filter by category
+    if (filters.category && filters.category !== 'all') {
+      logs = logs.filter(l => l.action_category === filters.category)
+    }
+
+    // Filter by action type
+    if (filters.actionType && filters.actionType !== 'all') {
+      logs = logs.filter(l => l.action_type === filters.actionType)
+    }
+
+    // Filter by date range
+    if (filters.dateFrom) {
+      const fromDate = new Date(filters.dateFrom)
+      logs = logs.filter(l => new Date(l.timestamp) >= fromDate)
+    }
+    if (filters.dateTo) {
+      const toDate = new Date(filters.dateTo)
+      toDate.setHours(23, 59, 59, 999)
+      logs = logs.filter(l => new Date(l.timestamp) <= toDate)
+    }
+
+    // Filter by search query
+    if (filters.searchQuery) {
+      const query = filters.searchQuery.toLowerCase()
+      logs = logs.filter(l =>
+        l.target_name?.toLowerCase().includes(query) ||
+        l.organization_name?.toLowerCase().includes(query) ||
+        l.action_type.toLowerCase().includes(query) ||
+        l.admin_email?.toLowerCase().includes(query)
+      )
+    }
+  }
+
+  return logs
+}
+
+// Get audit log statistics
+export function getAuditLogStats(): {
+  totalLogs: number
+  todayCount: number
+  categoryCounts: Record<AuditActionCategory, number>
+  recentActions: AuditLogEntry[]
+} {
+  const now = new Date()
+  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+
+  const categoryCounts: Record<AuditActionCategory, number> = {
+    connection: 0,
+    navigation: 0,
+    search: 0,
+    export: 0,
+    analytics: 0,
+    diagnostic: 0,
+    revenue: 0,
+    settings: 0,
+  }
+
+  let todayCount = 0
+
+  auditLogs.forEach(log => {
+    categoryCounts[log.action_category]++
+    if (new Date(log.timestamp) >= todayStart) {
+      todayCount++
+    }
+  })
+
+  return {
+    totalLogs: auditLogs.length,
+    todayCount,
+    categoryCounts,
+    recentActions: auditLogs.slice(0, 10),
+  }
+}
+
+// Export audit logs to CSV
+export function exportAuditLogsToCSV(logs: AuditLogEntry[]): string {
+  return exportToCSV(
+    logs.map(l => ({
+      timestamp: new Date(l.timestamp).toLocaleString(),
+      action: getActionTypeDisplay(l.action_type).label,
+      category: getCategoryDisplay(l.action_category).label,
+      target: l.target_name || l.target_type || '-',
+      organization: l.organization_name || '-',
+      success: l.success ? 'Yes' : 'No',
+      error: l.error_message || '-',
+    })),
+    [
+      { key: 'timestamp', label: 'Timestamp' },
+      { key: 'action', label: 'Action' },
+      { key: 'category', label: 'Category' },
+      { key: 'target', label: 'Target' },
+      { key: 'organization', label: 'Organization' },
+      { key: 'success', label: 'Success' },
+      { key: 'error', label: 'Error' },
+    ]
+  )
 }
