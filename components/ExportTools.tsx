@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useMemo } from 'react'
-import { RawDiagnosticData, exportToCSV, generateUserExportSQL } from '@/lib/supabase'
+import { RawDiagnosticData, exportToCSV, generateUserExportSQL, detectOrganizationType, getOrgTypeDisplay } from '@/lib/supabase'
 
 interface ExportToolsProps {
   data: RawDiagnosticData
@@ -55,9 +55,18 @@ export default function ExportTools({ data }: ExportToolsProps) {
         break
       case 'organizations':
         csvData = exportToCSV(
-          data.organizations.map(o => ({ ...o })),
+          data.organizations.map(o => {
+            const orgType = detectOrganizationType(o)
+            const typeDisplay = getOrgTypeDisplay(orgType)
+            return {
+              name: o.name,
+              type: typeDisplay.label,
+              id: o.id,
+            }
+          }),
           [
             { key: 'name', label: 'Organization Name' },
+            { key: 'type', label: 'Type' },
             { key: 'id', label: 'Organization ID' },
           ]
         )
