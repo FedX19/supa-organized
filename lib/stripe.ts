@@ -112,11 +112,11 @@ export interface StripeCoupon {
 export interface StripeDataSyncResult {
   success: boolean
   customers: number
-  subscriptions: number
-  payments: number
-  cancellations: number
+  subscriptions: StripeSubscription[]
+  payments: StripePayment[]
+  cancellations: StripeCancellation[]
   invoices: number
-  coupons: number
+  coupons: StripeCoupon[]
   error?: string
   syncedAt: Date
 }
@@ -185,11 +185,11 @@ export async function syncStripeData(): Promise<StripeDataSyncResult> {
     return {
       success: false,
       customers: 0,
-      subscriptions: 0,
-      payments: 0,
-      cancellations: 0,
+      subscriptions: [],
+      payments: [],
+      cancellations: [],
       invoices: 0,
-      coupons: 0,
+      coupons: [],
       error: 'Stripe API key not configured. Add STRIPE_SECRET_KEY to environment variables.',
       syncedAt: new Date(),
     }
@@ -518,11 +518,11 @@ export async function syncStripeData(): Promise<StripeDataSyncResult> {
     return {
       success: true,
       customers: customers.length,
-      subscriptions: subscriptions.length,
-      payments: payments.length,
-      cancellations: cancellations.length,
+      subscriptions: subscriptions,
+      payments: payments,
+      cancellations: cancellations,
       invoices: invoices.length,
-      coupons: coupons.length,
+      coupons: coupons,
       syncedAt: new Date(),
     }
   } catch (error) {
@@ -530,11 +530,11 @@ export async function syncStripeData(): Promise<StripeDataSyncResult> {
     return {
       success: false,
       customers: 0,
-      subscriptions: 0,
-      payments: 0,
-      cancellations: 0,
+      subscriptions: [],
+      payments: [],
+      cancellations: [],
       invoices: 0,
-      coupons: 0,
+      coupons: [],
       error: error instanceof Error ? error.message : 'Unknown error',
       syncedAt: new Date(),
     }
