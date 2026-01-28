@@ -49,6 +49,30 @@ interface RevenueDashboardProps {
 
 type ActiveTab = 'overview' | 'individuals' | 'leagues' | 'cancellations' | 'at-risk' | 'beta-testers' | 'export'
 
+// Helper function to safely format dates that may be strings from JSON
+function safeFormatDate(date: Date | string | null | undefined): string {
+  if (!date) return '-'
+  try {
+    const d = typeof date === 'string' ? new Date(date) : date
+    if (isNaN(d.getTime())) return '-'
+    return d.toLocaleDateString()
+  } catch {
+    return '-'
+  }
+}
+
+// Helper to ensure we have a valid Date object
+function ensureDate(date: Date | string | null | undefined): Date | null {
+  if (!date) return null
+  try {
+    const d = typeof date === 'string' ? new Date(date) : date
+    if (isNaN(d.getTime())) return null
+    return d
+  } catch {
+    return null
+  }
+}
+
 export default function RevenueDashboard({
   data,
   onRefreshStripe,
@@ -273,26 +297,53 @@ export default function RevenueDashboard({
       )}
 
       {/* Cancellations Tab */}
-      {activeTab === 'cancellations' && stripeData?.cancellationAnalysis && (
-        <CancellationsSection analysis={stripeData.cancellationAnalysis} />
+      {activeTab === 'cancellations' && (
+        stripeData?.cancellationAnalysis ? (
+          <CancellationsSection analysis={stripeData.cancellationAnalysis} />
+        ) : (
+          <EmptyStripeState
+            title="No Cancellation Data"
+            message="Click 'Refresh Revenue Data' to sync cancellation data from Stripe."
+            onRefresh={onRefreshStripe}
+            isRefreshing={isRefreshing}
+          />
+        )
       )}
 
       {/* At Risk Tab */}
-      {activeTab === 'at-risk' && stripeData && (
-        <AtRiskSection
-          pastDue={stripeData.pastDueSubscriptions || []}
-          scheduledCancellations={stripeData.scheduledCancellations || []}
-          failedPayments={stripeData.failedPayments || []}
-        />
+      {activeTab === 'at-risk' && (
+        stripeData?.hasData ? (
+          <AtRiskSection
+            pastDue={stripeData.pastDueSubscriptions || []}
+            scheduledCancellations={stripeData.scheduledCancellations || []}
+            failedPayments={stripeData.failedPayments || []}
+          />
+        ) : (
+          <EmptyStripeState
+            title="No At-Risk Data"
+            message="Click 'Refresh Revenue Data' to sync subscription data from Stripe."
+            onRefresh={onRefreshStripe}
+            isRefreshing={isRefreshing}
+          />
+        )
       )}
 
       {/* Beta Testers Tab */}
-      {activeTab === 'beta-testers' && stripeData && (
-        <BetaTestersSection
-          betaTesters={stripeData.betaTesters || []}
-          couponUsage={stripeData.couponUsage || []}
-          metrics={stripeData.metrics}
-        />
+      {activeTab === 'beta-testers' && (
+        stripeData?.hasData ? (
+          <BetaTestersSection
+            betaTesters={stripeData.betaTesters || []}
+            couponUsage={stripeData.couponUsage || []}
+            metrics={stripeData.metrics}
+          />
+        ) : (
+          <EmptyStripeState
+            title="No Beta Tester Data"
+            message="Click 'Refresh Revenue Data' to sync subscription data from Stripe."
+            onRefresh={onRefreshStripe}
+            isRefreshing={isRefreshing}
+          />
+        )
       )}
 
       {/* Export Tab */}
@@ -587,18 +638,18 @@ function CancellationsSection({ analysis }: { analysis: CancellationAnalysis }) 
                     </span>
                   </td>
                   <td className="px-4 py-3 text-right text-gray-400 text-sm">
-                    {cancel.canceledAt.toLocaleDateString()}
+                    {safeFormatDate(cancel.canceledAt)}
                   </td>
                   <td className="px-4 py-3 text-right">
-                    <span className={`font-medium ${cancel.daysAsCustomer < 30 ? 'text-red-400' : 'text-gray-300'}`}>
-                      {cancel.daysAsCustomer}
+                    <span className={`font-medium ${(cancel.daysAsCustomer || 0) < 30 ? 'text-red-400' : 'text-gray-300'}`}>
+                      {cancel.daysAsCustomer || 0}
                     </span>
                   </td>
                   <td className="px-4 py-3 text-right text-red-400 font-medium">
-                    ${cancel.monthlyValue.toFixed(0)}/mo
+                    ${(cancel.monthlyValue || 0).toFixed(0)}/mo
                   </td>
                   <td className="px-4 py-3 text-right text-white font-medium">
-                    ${cancel.totalPaid.toFixed(0)}
+                    ${(cancel.totalPaid || 0).toFixed(0)}
                   </td>
                   <td className="px-4 py-3 text-gray-400 text-sm max-w-[150px] truncate">
                     {cancel.reason || '-'}
@@ -674,10 +725,10 @@ function AtRiskSection({
                       <div className="text-xs text-gray-500">{sub.customerEmail}</div>
                     </td>
                     <td className="px-4 py-3 text-right text-red-400 font-medium">
-                      ${sub.discountedAmount.toFixed(0)}/mo
+                      ${(sub.discountedAmount || 0).toFixed(0)}/mo
                     </td>
                     <td className="px-4 py-3 text-right text-gray-400 text-sm">
-                      {sub.currentPeriodEnd.toLocaleDateString()}
+                      {safeFormatDate(sub.currentPeriodEnd)}
                     </td>
                     <td className="px-4 py-3 text-gray-400 text-sm">
                       {sub.couponName || sub.couponId || '-'}
@@ -715,10 +766,10 @@ function AtRiskSection({
                       <div className="text-xs text-gray-500">{sub.customerEmail}</div>
                     </td>
                     <td className="px-4 py-3 text-right text-orange-400 font-medium">
-                      ${sub.discountedAmount.toFixed(0)}/mo
+                      ${(sub.discountedAmount || 0).toFixed(0)}/mo
                     </td>
                     <td className="px-4 py-3 text-right text-gray-400 text-sm">
-                      {sub.currentPeriodEnd.toLocaleDateString()}
+                      {safeFormatDate(sub.currentPeriodEnd)}
                     </td>
                     <td className="px-4 py-3 text-gray-400 text-sm">
                       {sub.couponName || sub.couponId || '-'}
@@ -754,10 +805,10 @@ function AtRiskSection({
                       <div className="text-gray-300">{payment.customerEmail || 'Unknown'}</div>
                     </td>
                     <td className="px-4 py-3 text-right text-red-400 font-medium">
-                      ${payment.amount.toFixed(0)}
+                      ${(payment.amount || 0).toFixed(0)}
                     </td>
                     <td className="px-4 py-3 text-right text-gray-400 text-sm">
-                      {payment.created.toLocaleDateString()}
+                      {safeFormatDate(payment.created)}
                     </td>
                     <td className="px-4 py-3 text-gray-400 text-sm max-w-[200px] truncate">
                       {payment.failureMessage || 'Unknown reason'}
@@ -868,13 +919,13 @@ function BetaTestersSection({
                     </span>
                   </td>
                   <td className="px-4 py-3 text-right text-gray-400">
-                    ${sub.planAmount.toFixed(0)}/mo
+                    ${(sub.planAmount || 0).toFixed(0)}/mo
                   </td>
                   <td className="px-4 py-3 text-right text-green-400 font-medium">
-                    ${sub.discountedAmount.toFixed(0)}/mo
+                    ${(sub.discountedAmount || 0).toFixed(0)}/mo
                   </td>
                   <td className="px-4 py-3 text-right text-gray-400 text-sm">
-                    {sub.startDate.toLocaleDateString()}
+                    {safeFormatDate(sub.startDate)}
                   </td>
                 </tr>
               ))}
@@ -887,6 +938,55 @@ function BetaTestersSection({
           )}
         </div>
       </div>
+    </div>
+  )
+}
+
+// ========== EMPTY STATE FOR STRIPE DATA ==========
+function EmptyStripeState({
+  title,
+  message,
+  onRefresh,
+  isRefreshing,
+}: {
+  title: string
+  message: string
+  onRefresh?: () => void
+  isRefreshing?: boolean
+}) {
+  return (
+    <div className="bg-dark-card border border-dark-border rounded-lg p-8 text-center">
+      <div className="w-16 h-16 bg-blue-500/20 rounded-full flex items-center justify-center mx-auto mb-4">
+        <svg className="w-8 h-8 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+        </svg>
+      </div>
+      <h3 className="text-xl font-bold text-white mb-2">{title}</h3>
+      <p className="text-gray-400 mb-4">{message}</p>
+      {onRefresh && (
+        <button
+          onClick={onRefresh}
+          disabled={isRefreshing}
+          className="inline-flex items-center gap-2 px-4 py-2 bg-primary hover:bg-primary-hover text-black font-medium rounded-lg transition-colors disabled:opacity-50"
+        >
+          {isRefreshing ? (
+            <>
+              <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+              </svg>
+              Syncing...
+            </>
+          ) : (
+            <>
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+              </svg>
+              Refresh Revenue Data
+            </>
+          )}
+        </button>
+      )}
     </div>
   )
 }
