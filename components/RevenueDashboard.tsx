@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import {
   RealRevenueData,
   RealRevenueMetrics,
@@ -12,19 +12,87 @@ import {
   getNextSeasonDate,
   exportToCSV,
 } from '@/lib/supabase'
+import {
+  StripeMetrics,
+  StripeSubscription,
+  StripeCancellation,
+  StripePayment,
+  CancellationAnalysis,
+  StripeCoupon,
+  StripeDataSyncResult,
+} from '@/lib/stripe'
 
 interface RevenueDashboardProps {
   data: RealRevenueData
+  onRefreshStripe?: () => Promise<{
+    success: boolean
+    syncResult?: StripeDataSyncResult
+    metrics?: StripeMetrics
+    cancellationAnalysis?: CancellationAnalysis
+    error?: string
+  }>
+  stripeData?: {
+    hasData: boolean
+    metrics?: StripeMetrics
+    cancellationAnalysis?: CancellationAnalysis
+    activeSubscriptions?: StripeSubscription[]
+    canceledSubscriptions?: StripeSubscription[]
+    pastDueSubscriptions?: StripeSubscription[]
+    scheduledCancellations?: StripeSubscription[]
+    betaTesters?: StripeSubscription[]
+    failedPayments?: StripePayment[]
+    couponUsage?: { coupon: StripeCoupon; customerCount: number; revenueImpact: number }[]
+    lastSyncedAt?: string | null
+  }
+  isRefreshing?: boolean
 }
 
-type ActiveTab = 'overview' | 'individuals' | 'leagues' | 'export'
+type ActiveTab = 'overview' | 'individuals' | 'leagues' | 'cancellations' | 'at-risk' | 'beta-testers' | 'export'
 
-export default function RevenueDashboard({ data }: RevenueDashboardProps) {
+export default function RevenueDashboard({
+  data,
+  onRefreshStripe,
+  stripeData,
+  isRefreshing = false,
+}: RevenueDashboardProps) {
   const [activeTab, setActiveTab] = useState<ActiveTab>('overview')
+  const [showRefreshToast, setShowRefreshToast] = useState(false)
+  const [refreshResult, setRefreshResult] = useState<{ success: boolean; message: string } | null>(null)
   const currentSeason = getCurrentSeason()
   const nextSeasonDate = getNextSeasonDate()
 
-  if (!data.hasData) {
+  const handleRefresh = useCallback(async () => {
+    if (!onRefreshStripe || isRefreshing) return
+
+    const result = await onRefreshStripe()
+    setRefreshResult({
+      success: result.success,
+      message: result.success
+        ? `Synced ${result.syncResult?.subscriptions || 0} subscriptions, ${result.syncResult?.cancellations || 0} cancellations`
+        : result.error || 'Failed to sync',
+    })
+    setShowRefreshToast(true)
+    setTimeout(() => setShowRefreshToast(false), 5000)
+  }, [onRefreshStripe, isRefreshing])
+
+  const formatLastSync = (dateStr: string | null | undefined): string => {
+    if (!dateStr) return 'Never'
+    const date = new Date(dateStr)
+    const now = new Date()
+    const diffMs = now.getTime() - date.getTime()
+    const diffMins = Math.floor(diffMs / 60000)
+    const diffHours = Math.floor(diffMs / 3600000)
+
+    if (diffMins < 1) return 'Just now'
+    if (diffMins < 60) return `${diffMins}m ago`
+    if (diffHours < 24) return `${diffHours}h ago`
+    return date.toLocaleDateString()
+  }
+
+  // Use Stripe data if available, otherwise fall back to estimated data
+  const useStripeData = stripeData?.hasData && stripeData.metrics
+
+  if (!data.hasData && !useStripeData) {
     return (
       <div className="bg-dark-card border border-dark-border rounded-lg p-8 text-center">
         <div className="w-16 h-16 bg-amber-500/20 rounded-full flex items-center justify-center mx-auto mb-4">
@@ -33,26 +101,121 @@ export default function RevenueDashboard({ data }: RevenueDashboardProps) {
           </svg>
         </div>
         <h3 className="text-xl font-bold text-white mb-2">No Revenue Data</h3>
-        <p className="text-gray-400 max-w-md mx-auto">
-          {data.error ? (
-            <>Error loading data: {data.error}</>
-          ) : (
-            <>No customers found. Make sure you have a &quot;Modern Day Coach&quot; organization for individual members, and staff in other organizations for league coaches.</>
-          )}
+        <p className="text-gray-400 max-w-md mx-auto mb-4">
+          {data.error || 'Click "Refresh Revenue Data" to sync from Stripe, or check your database connection.'}
         </p>
+        {onRefreshStripe && (
+          <button
+            onClick={handleRefresh}
+            disabled={isRefreshing}
+            className={`px-4 py-2 rounded-lg font-medium ${
+              isRefreshing
+                ? 'bg-orange-500/50 text-orange-200 cursor-not-allowed'
+                : 'bg-orange-500 text-white hover:bg-orange-600'
+            }`}
+          >
+            {isRefreshing ? 'Syncing...' : 'Refresh Revenue Data'}
+          </button>
+        )}
       </div>
     )
   }
 
-  const tabs: { id: ActiveTab; label: string; count?: number }[] = [
+  const tabs: { id: ActiveTab; label: string; count?: number; alert?: boolean }[] = [
     { id: 'overview', label: 'Overview' },
     { id: 'individuals', label: 'Individual Members', count: data.individualMembers.length },
     { id: 'leagues', label: 'League Coaches', count: data.leagueCoaches.length },
+    ...(useStripeData ? [
+      {
+        id: 'cancellations' as ActiveTab,
+        label: 'Cancellations',
+        count: stripeData?.cancellationAnalysis?.cancellationsThisMonth || 0,
+        alert: (stripeData?.cancellationAnalysis?.cancellationsThisMonth || 0) > 0,
+      },
+      {
+        id: 'at-risk' as ActiveTab,
+        label: 'At Risk',
+        count: (stripeData?.pastDueSubscriptions?.length || 0) + (stripeData?.scheduledCancellations?.length || 0),
+        alert: ((stripeData?.pastDueSubscriptions?.length || 0) + (stripeData?.scheduledCancellations?.length || 0)) > 0,
+      },
+      {
+        id: 'beta-testers' as ActiveTab,
+        label: 'Beta Testers',
+        count: stripeData?.betaTesters?.length || 0,
+      },
+    ] : []),
     { id: 'export', label: 'Export' },
   ]
 
   return (
     <div className="space-y-6 animate-fadeIn">
+      {/* Refresh Toast */}
+      {showRefreshToast && refreshResult && (
+        <div className={`fixed top-4 right-4 z-50 px-4 py-3 rounded-lg shadow-lg flex items-center gap-3 ${
+          refreshResult.success ? 'bg-green-600' : 'bg-red-600'
+        }`}>
+          <span className="text-white font-medium">{refreshResult.message}</span>
+          <button onClick={() => setShowRefreshToast(false)} className="text-white/80 hover:text-white">
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+      )}
+
+      {/* Refresh Button Row */}
+      {onRefreshStripe && (
+        <div className="flex items-center justify-between bg-dark-card border border-dark-border rounded-lg p-3">
+          <div className="flex items-center gap-3">
+            <button
+              onClick={handleRefresh}
+              disabled={isRefreshing}
+              className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-all ${
+                isRefreshing
+                  ? 'bg-orange-500/50 text-orange-200 cursor-not-allowed'
+                  : 'bg-orange-500 text-white hover:bg-orange-600 active:scale-95'
+              }`}
+            >
+              {isRefreshing ? (
+                <>
+                  <svg className="w-5 h-5 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                  </svg>
+                  <span>Syncing Stripe...</span>
+                </>
+              ) : (
+                <>
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                  </svg>
+                  <span>Refresh Revenue Data</span>
+                </>
+              )}
+            </button>
+            <span className="text-sm text-gray-400">
+              Last synced: {formatLastSync(stripeData?.lastSyncedAt)}
+            </span>
+          </div>
+          {useStripeData && (
+            <div className="hidden md:flex items-center gap-4 text-sm">
+              <span className="text-green-400">
+                {stripeData?.metrics?.activeSubscriptions || 0} active
+              </span>
+              {(stripeData?.metrics?.pastDueSubscriptions || 0) > 0 && (
+                <span className="text-orange-400">
+                  {stripeData?.metrics?.pastDueSubscriptions} past due
+                </span>
+              )}
+              {(stripeData?.cancellationAnalysis?.cancellationsThisMonth || 0) > 0 && (
+                <span className="text-red-400">
+                  {stripeData?.cancellationAnalysis?.cancellationsThisMonth} canceled this month
+                </span>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Tab Navigation */}
       <div className="flex gap-2 overflow-x-auto pb-2">
         {tabs.map((tab) => (
@@ -70,7 +233,9 @@ export default function RevenueDashboard({ data }: RevenueDashboardProps) {
               <span className={`ml-2 px-2 py-0.5 text-xs rounded-full ${
                 activeTab === tab.id
                   ? 'bg-black/20'
-                  : 'bg-primary/20 text-primary'
+                  : tab.alert
+                    ? 'bg-red-500/20 text-red-400'
+                    : 'bg-primary/20 text-primary'
               }`}>
                 {tab.count}
               </span>
@@ -83,6 +248,8 @@ export default function RevenueDashboard({ data }: RevenueDashboardProps) {
       {activeTab === 'overview' && (
         <OverviewSection
           metrics={data.metrics}
+          stripeMetrics={useStripeData ? stripeData.metrics : undefined}
+          cancellationAnalysis={useStripeData ? stripeData.cancellationAnalysis : undefined}
           growthData={data.growthData}
           currentSeason={currentSeason}
           nextSeasonDate={nextSeasonDate}
@@ -91,17 +258,46 @@ export default function RevenueDashboard({ data }: RevenueDashboardProps) {
 
       {/* Individual Members Tab */}
       {activeTab === 'individuals' && (
-        <IndividualsSection members={data.individualMembers} />
+        <IndividualsSection
+          members={data.individualMembers}
+          subscriptions={useStripeData ? stripeData?.activeSubscriptions : undefined}
+        />
       )}
 
       {/* League Coaches Tab */}
       {activeTab === 'leagues' && (
-        <LeaguesSection coaches={data.leagueCoaches} />
+        <LeaguesSection
+          coaches={data.leagueCoaches}
+          subscriptions={useStripeData ? stripeData?.activeSubscriptions : undefined}
+        />
+      )}
+
+      {/* Cancellations Tab */}
+      {activeTab === 'cancellations' && stripeData?.cancellationAnalysis && (
+        <CancellationsSection analysis={stripeData.cancellationAnalysis} />
+      )}
+
+      {/* At Risk Tab */}
+      {activeTab === 'at-risk' && stripeData && (
+        <AtRiskSection
+          pastDue={stripeData.pastDueSubscriptions || []}
+          scheduledCancellations={stripeData.scheduledCancellations || []}
+          failedPayments={stripeData.failedPayments || []}
+        />
+      )}
+
+      {/* Beta Testers Tab */}
+      {activeTab === 'beta-testers' && stripeData && (
+        <BetaTestersSection
+          betaTesters={stripeData.betaTesters || []}
+          couponUsage={stripeData.couponUsage || []}
+          metrics={stripeData.metrics}
+        />
       )}
 
       {/* Export Tab */}
       {activeTab === 'export' && (
-        <ExportSection data={data} />
+        <ExportSection data={data} stripeData={stripeData} />
       )}
     </div>
   )
@@ -110,71 +306,157 @@ export default function RevenueDashboard({ data }: RevenueDashboardProps) {
 // ========== OVERVIEW SECTION ==========
 function OverviewSection({
   metrics,
+  stripeMetrics,
+  cancellationAnalysis,
   growthData,
   currentSeason,
   nextSeasonDate,
 }: {
   metrics: RealRevenueMetrics
+  stripeMetrics?: StripeMetrics
+  cancellationAnalysis?: CancellationAnalysis
   growthData: GrowthDataPoint[]
   currentSeason: string
   nextSeasonDate: Date
 }) {
+  // Use Stripe metrics if available
+  const displayMetrics = stripeMetrics || {
+    mrr: metrics.mrr,
+    arr: metrics.arr,
+    lifetimeRevenue: metrics.totalRevenue,
+    activeSubscriptions: metrics.totalCustomers,
+    canceledThisMonth: 0,
+    churnRate: metrics.churnRate,
+    revenueLostThisMonth: 0,
+    avgCustomerLifetime: 0,
+    totalCustomers: metrics.totalCustomers,
+    payingCustomers: metrics.totalCustomers,
+    betaTesters: 0,
+    discountedCustomers: 0,
+    actualRevenue: metrics.mrr,
+    potentialRevenue: metrics.mrr,
+    discountedRevenue: 0,
+    pastDueSubscriptions: 0,
+    failedPaymentsThisMonth: 0,
+  }
+
   return (
     <div className="space-y-6">
+      {/* Source Indicator */}
+      {stripeMetrics && (
+        <div className="flex items-center gap-2 text-sm">
+          <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
+          <span className="text-gray-400">Live data from Stripe</span>
+        </div>
+      )}
+
       {/* Key Metrics Cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <MetricCard
           label="MRR"
-          value={formatCurrency(metrics.mrr * 100)}
-          change={metrics.mrrGrowth}
+          value={formatCurrency(displayMetrics.mrr * 100)}
           icon={<DollarIcon />}
           color="green"
         />
         <MetricCard
           label="ARR"
-          value={formatCurrency(metrics.arr * 100)}
+          value={formatCurrency(displayMetrics.arr * 100)}
           icon={<CalendarIcon />}
           color="blue"
         />
         <MetricCard
-          label="Total Customers"
-          value={metrics.totalCustomers.toString()}
-          change={metrics.userGrowth}
+          label="Active Subscriptions"
+          value={displayMetrics.activeSubscriptions.toString()}
           icon={<UsersIcon />}
           color="primary"
         />
         <MetricCard
-          label="Total Revenue"
-          value={formatCurrency(metrics.totalRevenue * 100)}
+          label="Lifetime Revenue"
+          value={formatCurrency(displayMetrics.lifetimeRevenue * 100)}
           subtitle="All-time"
           icon={<TrendIcon />}
           color="green"
         />
       </div>
 
-      {/* Secondary Metrics */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <SecondaryCard
-          label="Individual MRR"
-          value={formatCurrency(metrics.individualMRR * 100)}
-          subtitle={`${metrics.individualMemberCount} @ $20/mo`}
-        />
-        <SecondaryCard
-          label="League MRR"
-          value={formatCurrency(metrics.leagueMRR * 100)}
-          subtitle={`${metrics.leagueCoachCount} @ $33.33/mo`}
-        />
-        <SecondaryCard
-          label="Modern Day Coach Members"
-          value={metrics.individualMemberCount.toString()}
-          subtitle="$20/month each"
-        />
-        <SecondaryCard
-          label="League Coaches"
-          value={metrics.leagueCoachCount.toString()}
-          subtitle="$200/season each"
-        />
-      </div>
+      {/* Churn & Cancellation Metrics */}
+      {stripeMetrics && (
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <MetricCard
+            label="Canceled This Month"
+            value={displayMetrics.canceledThisMonth.toString()}
+            color="red"
+            icon={<CancelIcon />}
+          />
+          <MetricCard
+            label="Revenue Lost"
+            value={formatCurrency(displayMetrics.revenueLostThisMonth * 100)}
+            subtitle="This month"
+            color="red"
+            icon={<TrendDownIcon />}
+          />
+          <MetricCard
+            label="Churn Rate"
+            value={`${displayMetrics.churnRate.toFixed(1)}%`}
+            color={displayMetrics.churnRate > 5 ? 'red' : displayMetrics.churnRate > 2 ? 'yellow' : 'green'}
+            icon={<ChurnIcon />}
+          />
+          <MetricCard
+            label="Avg Customer Lifetime"
+            value={`${displayMetrics.avgCustomerLifetime} days`}
+            color="blue"
+            icon={<CalendarIcon />}
+          />
+        </div>
+      )}
+
+      {/* Customer Segmentation */}
+      {stripeMetrics && (
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <SecondaryCard
+            label="Paying Customers"
+            value={displayMetrics.payingCustomers.toString()}
+            subtitle="Full price"
+          />
+          <SecondaryCard
+            label="Beta Testers"
+            value={displayMetrics.betaTesters.toString()}
+            subtitle="100% discount"
+          />
+          <SecondaryCard
+            label="Discounted"
+            value={displayMetrics.discountedCustomers.toString()}
+            subtitle="Partial discount"
+          />
+          <SecondaryCard
+            label="Past Due"
+            value={displayMetrics.pastDueSubscriptions.toString()}
+            subtitle="Payment failed"
+            alert={displayMetrics.pastDueSubscriptions > 0}
+          />
+        </div>
+      )}
+
+      {/* Revenue Analysis (Stripe only) */}
+      {stripeMetrics && displayMetrics.discountedRevenue > 0 && (
+        <div className="bg-dark-card border border-dark-border rounded-lg p-4">
+          <h3 className="text-sm font-medium text-gray-400 mb-3">Revenue Analysis</h3>
+          <div className="grid grid-cols-3 gap-4">
+            <div>
+              <div className="text-xl font-bold text-green-400">${displayMetrics.actualRevenue.toFixed(0)}/mo</div>
+              <div className="text-xs text-gray-500">Actual Revenue</div>
+            </div>
+            <div>
+              <div className="text-xl font-bold text-blue-400">${displayMetrics.potentialRevenue.toFixed(0)}/mo</div>
+              <div className="text-xs text-gray-500">Potential Revenue</div>
+            </div>
+            <div>
+              <div className="text-xl font-bold text-orange-400">${displayMetrics.discountedRevenue.toFixed(0)}/mo</div>
+              <div className="text-xs text-gray-500">Being Discounted</div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Season Info */}
       <div className="bg-dark-card border border-dark-border rounded-lg p-4">
@@ -192,14 +474,419 @@ function OverviewSection({
         </div>
       </div>
 
-      {/* Revenue Charts */}
+      {/* Charts */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <RevenueChart growthData={growthData} />
-        <CustomerChart growthData={growthData} />
+        {cancellationAnalysis && cancellationAnalysis.cancellationsByMonth.length > 0 ? (
+          <CancellationChart data={cancellationAnalysis.cancellationsByMonth} />
+        ) : (
+          <CustomerChart growthData={growthData} />
+        )}
       </div>
 
       {/* Revenue Breakdown */}
-      <RevenueBreakdown metrics={metrics} />
+      <RevenueBreakdown metrics={metrics} stripeMetrics={stripeMetrics} />
+    </div>
+  )
+}
+
+// ========== CANCELLATIONS SECTION ==========
+function CancellationsSection({ analysis }: { analysis: CancellationAnalysis }) {
+  return (
+    <div className="space-y-6">
+      {/* Summary Cards */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <MetricCard
+          label="Cancellations This Month"
+          value={analysis.cancellationsThisMonth.toString()}
+          color="red"
+          icon={<CancelIcon />}
+        />
+        <MetricCard
+          label="Revenue Lost"
+          value={formatCurrency(analysis.revenueLostThisMonth * 100)}
+          subtitle="This month"
+          color="red"
+          icon={<TrendDownIcon />}
+        />
+        <MetricCard
+          label="Avg Customer Lifetime"
+          value={`${analysis.avgCustomerLifetimeDays} days`}
+          color="blue"
+          icon={<CalendarIcon />}
+        />
+        <MetricCard
+          label="Churn Rate"
+          value={`${analysis.churnRate.toFixed(1)}%`}
+          color={analysis.churnRate > 5 ? 'red' : 'yellow'}
+          icon={<ChurnIcon />}
+        />
+      </div>
+
+      {/* Churn Breakdown */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <SecondaryCard
+          label="Early Churn"
+          value={analysis.earlyChurn.toString()}
+          subtitle="< 30 days"
+          alert={analysis.earlyChurn > 0}
+        />
+        <SecondaryCard
+          label="Late Churn"
+          value={analysis.lateChurn.toString()}
+          subtitle="> 6 months"
+        />
+        <SecondaryCard
+          label="Beta Tester Churn"
+          value={analysis.betaTesterChurn.toString()}
+          subtitle="Free accounts"
+        />
+        <SecondaryCard
+          label="Paying Customer Churn"
+          value={analysis.payingCustomerChurn.toString()}
+          subtitle="Paid accounts"
+          alert={analysis.payingCustomerChurn > 0}
+        />
+      </div>
+
+      {/* Cancellation Chart */}
+      <CancellationChart data={analysis.cancellationsByMonth} />
+
+      {/* Recent Cancellations Table */}
+      <div className="bg-dark-card border border-dark-border rounded-lg overflow-hidden">
+        <div className="px-4 py-3 border-b border-dark-border bg-dark-surface">
+          <h3 className="font-medium text-white">Recent Cancellations</h3>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full">
+            <thead>
+              <tr className="border-b border-dark-border bg-dark-surface text-sm">
+                <th className="px-4 py-3 text-left text-gray-400 font-medium">Customer</th>
+                <th className="px-4 py-3 text-left text-gray-400 font-medium">Type</th>
+                <th className="px-4 py-3 text-right text-gray-400 font-medium">Canceled</th>
+                <th className="px-4 py-3 text-right text-gray-400 font-medium">Days Active</th>
+                <th className="px-4 py-3 text-right text-gray-400 font-medium">Monthly Value</th>
+                <th className="px-4 py-3 text-right text-gray-400 font-medium">Total Paid</th>
+                <th className="px-4 py-3 text-left text-gray-400 font-medium">Reason</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-dark-border">
+              {analysis.recentCancellations.slice(0, 20).map((cancel) => (
+                <tr key={cancel.subscriptionId} className="hover:bg-dark-surface">
+                  <td className="px-4 py-3">
+                    <div className="text-white font-medium">{cancel.customerName || 'Unknown'}</div>
+                    <div className="text-xs text-gray-500">{cancel.customerEmail}</div>
+                  </td>
+                  <td className="px-4 py-3">
+                    <span className={`px-2 py-1 text-xs rounded ${
+                      cancel.subscriptionType === 'individual'
+                        ? 'bg-blue-500/20 text-blue-400'
+                        : 'bg-primary/20 text-primary'
+                    }`}>
+                      {cancel.subscriptionType}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3 text-right text-gray-400 text-sm">
+                    {cancel.canceledAt.toLocaleDateString()}
+                  </td>
+                  <td className="px-4 py-3 text-right">
+                    <span className={`font-medium ${cancel.daysAsCustomer < 30 ? 'text-red-400' : 'text-gray-300'}`}>
+                      {cancel.daysAsCustomer}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3 text-right text-red-400 font-medium">
+                    ${cancel.monthlyValue.toFixed(0)}/mo
+                  </td>
+                  <td className="px-4 py-3 text-right text-white font-medium">
+                    ${cancel.totalPaid.toFixed(0)}
+                  </td>
+                  <td className="px-4 py-3 text-gray-400 text-sm max-w-[150px] truncate">
+                    {cancel.reason || '-'}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {analysis.recentCancellations.length === 0 && (
+            <div className="p-8 text-center text-gray-400">
+              No cancellations found. Great news!
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ========== AT RISK SECTION ==========
+function AtRiskSection({
+  pastDue,
+  scheduledCancellations,
+  failedPayments,
+}: {
+  pastDue: StripeSubscription[]
+  scheduledCancellations: StripeSubscription[]
+  failedPayments: StripePayment[]
+}) {
+  const totalAtRisk = pastDue.length + scheduledCancellations.length
+  const atRiskRevenue = [...pastDue, ...scheduledCancellations].reduce((sum, s) => sum + s.discountedAmount, 0)
+
+  return (
+    <div className="space-y-6">
+      {/* Summary */}
+      <div className="bg-gradient-to-r from-orange-500/20 to-red-500/20 border border-orange-500/30 rounded-lg p-6">
+        <div className="flex items-center justify-between">
+          <div>
+            <h3 className="text-lg font-semibold text-white">At-Risk Customers</h3>
+            <p className="text-gray-400 text-sm mt-1">
+              Customers with payment issues or scheduled cancellations
+            </p>
+          </div>
+          <div className="text-right">
+            <div className="text-2xl font-bold text-orange-400">{totalAtRisk}</div>
+            <div className="text-sm text-gray-400">${atRiskRevenue.toFixed(0)}/mo at risk</div>
+          </div>
+        </div>
+      </div>
+
+      {/* Past Due Subscriptions */}
+      {pastDue.length > 0 && (
+        <div className="bg-dark-card border border-dark-border rounded-lg overflow-hidden">
+          <div className="px-4 py-3 border-b border-dark-border bg-red-500/10">
+            <h3 className="font-medium text-red-400">Past Due ({pastDue.length})</h3>
+            <p className="text-xs text-gray-500">Payment failed - requires action</p>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead>
+                <tr className="border-b border-dark-border bg-dark-surface text-sm">
+                  <th className="px-4 py-3 text-left text-gray-400 font-medium">Customer</th>
+                  <th className="px-4 py-3 text-right text-gray-400 font-medium">Amount</th>
+                  <th className="px-4 py-3 text-right text-gray-400 font-medium">Period End</th>
+                  <th className="px-4 py-3 text-left text-gray-400 font-medium">Coupon</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-dark-border">
+                {pastDue.map((sub) => (
+                  <tr key={sub.id} className="hover:bg-dark-surface">
+                    <td className="px-4 py-3">
+                      <div className="text-white font-medium">{sub.customerName || 'Unknown'}</div>
+                      <div className="text-xs text-gray-500">{sub.customerEmail}</div>
+                    </td>
+                    <td className="px-4 py-3 text-right text-red-400 font-medium">
+                      ${sub.discountedAmount.toFixed(0)}/mo
+                    </td>
+                    <td className="px-4 py-3 text-right text-gray-400 text-sm">
+                      {sub.currentPeriodEnd.toLocaleDateString()}
+                    </td>
+                    <td className="px-4 py-3 text-gray-400 text-sm">
+                      {sub.couponName || sub.couponId || '-'}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* Scheduled Cancellations */}
+      {scheduledCancellations.length > 0 && (
+        <div className="bg-dark-card border border-dark-border rounded-lg overflow-hidden">
+          <div className="px-4 py-3 border-b border-dark-border bg-orange-500/10">
+            <h3 className="font-medium text-orange-400">Scheduled to Cancel ({scheduledCancellations.length})</h3>
+            <p className="text-xs text-gray-500">Will cancel at end of billing period</p>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead>
+                <tr className="border-b border-dark-border bg-dark-surface text-sm">
+                  <th className="px-4 py-3 text-left text-gray-400 font-medium">Customer</th>
+                  <th className="px-4 py-3 text-right text-gray-400 font-medium">Amount</th>
+                  <th className="px-4 py-3 text-right text-gray-400 font-medium">Cancels On</th>
+                  <th className="px-4 py-3 text-left text-gray-400 font-medium">Coupon</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-dark-border">
+                {scheduledCancellations.map((sub) => (
+                  <tr key={sub.id} className="hover:bg-dark-surface">
+                    <td className="px-4 py-3">
+                      <div className="text-white font-medium">{sub.customerName || 'Unknown'}</div>
+                      <div className="text-xs text-gray-500">{sub.customerEmail}</div>
+                    </td>
+                    <td className="px-4 py-3 text-right text-orange-400 font-medium">
+                      ${sub.discountedAmount.toFixed(0)}/mo
+                    </td>
+                    <td className="px-4 py-3 text-right text-gray-400 text-sm">
+                      {sub.currentPeriodEnd.toLocaleDateString()}
+                    </td>
+                    <td className="px-4 py-3 text-gray-400 text-sm">
+                      {sub.couponName || sub.couponId || '-'}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* Failed Payments */}
+      {failedPayments.length > 0 && (
+        <div className="bg-dark-card border border-dark-border rounded-lg overflow-hidden">
+          <div className="px-4 py-3 border-b border-dark-border bg-red-500/10">
+            <h3 className="font-medium text-red-400">Failed Payments ({failedPayments.length})</h3>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead>
+                <tr className="border-b border-dark-border bg-dark-surface text-sm">
+                  <th className="px-4 py-3 text-left text-gray-400 font-medium">Customer</th>
+                  <th className="px-4 py-3 text-right text-gray-400 font-medium">Amount</th>
+                  <th className="px-4 py-3 text-right text-gray-400 font-medium">Date</th>
+                  <th className="px-4 py-3 text-left text-gray-400 font-medium">Reason</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-dark-border">
+                {failedPayments.slice(0, 10).map((payment) => (
+                  <tr key={payment.id} className="hover:bg-dark-surface">
+                    <td className="px-4 py-3">
+                      <div className="text-gray-300">{payment.customerEmail || 'Unknown'}</div>
+                    </td>
+                    <td className="px-4 py-3 text-right text-red-400 font-medium">
+                      ${payment.amount.toFixed(0)}
+                    </td>
+                    <td className="px-4 py-3 text-right text-gray-400 text-sm">
+                      {payment.created.toLocaleDateString()}
+                    </td>
+                    <td className="px-4 py-3 text-gray-400 text-sm max-w-[200px] truncate">
+                      {payment.failureMessage || 'Unknown reason'}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {totalAtRisk === 0 && failedPayments.length === 0 && (
+        <div className="bg-dark-card border border-dark-border rounded-lg p-8 text-center">
+          <div className="w-16 h-16 bg-green-500/20 rounded-full flex items-center justify-center mx-auto mb-4">
+            <svg className="w-8 h-8 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+            </svg>
+          </div>
+          <h3 className="text-xl font-bold text-white mb-2">All Clear!</h3>
+          <p className="text-gray-400">No at-risk customers. All payments are healthy.</p>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ========== BETA TESTERS SECTION ==========
+function BetaTestersSection({
+  betaTesters,
+  couponUsage,
+  metrics,
+}: {
+  betaTesters: StripeSubscription[]
+  couponUsage: { coupon: StripeCoupon; customerCount: number; revenueImpact: number }[]
+  metrics?: StripeMetrics
+}) {
+  return (
+    <div className="space-y-6">
+      {/* Summary */}
+      <div className="bg-gradient-to-r from-purple-500/20 to-blue-500/20 border border-purple-500/30 rounded-lg p-6">
+        <div className="flex items-center justify-between">
+          <div>
+            <h3 className="text-lg font-semibold text-white">Beta Testers & Free Accounts</h3>
+            <p className="text-gray-400 text-sm mt-1">
+              Customers with 100% discount coupons
+            </p>
+          </div>
+          <div className="text-right">
+            <div className="text-2xl font-bold text-purple-400">{betaTesters.length}</div>
+            <div className="text-sm text-gray-400">
+              ${betaTesters.reduce((sum, b) => sum + b.planAmount, 0).toFixed(0)}/mo potential
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Coupon Usage */}
+      {couponUsage.length > 0 && (
+        <div className="bg-dark-card border border-dark-border rounded-lg p-6">
+          <h3 className="text-lg font-semibold text-white mb-4">Coupon Usage</h3>
+          <div className="space-y-3">
+            {couponUsage.map(({ coupon, customerCount, revenueImpact }) => (
+              <div key={coupon.id} className="flex items-center justify-between p-3 bg-dark-surface rounded-lg">
+                <div>
+                  <div className="text-white font-medium">{coupon.name || coupon.id}</div>
+                  <div className="text-xs text-gray-500">
+                    {coupon.percentOff ? `${coupon.percentOff}% off` : `$${coupon.amountOff} off`}
+                    {coupon.duration !== 'once' && ` (${coupon.duration})`}
+                  </div>
+                </div>
+                <div className="text-right">
+                  <div className="text-white font-medium">{customerCount} customers</div>
+                  <div className="text-xs text-orange-400">${revenueImpact.toFixed(0)}/mo impact</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Beta Testers Table */}
+      <div className="bg-dark-card border border-dark-border rounded-lg overflow-hidden">
+        <div className="px-4 py-3 border-b border-dark-border bg-dark-surface">
+          <h3 className="font-medium text-white">Beta Tester List</h3>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full">
+            <thead>
+              <tr className="border-b border-dark-border bg-dark-surface text-sm">
+                <th className="px-4 py-3 text-left text-gray-400 font-medium">Customer</th>
+                <th className="px-4 py-3 text-left text-gray-400 font-medium">Coupon</th>
+                <th className="px-4 py-3 text-right text-gray-400 font-medium">Plan Value</th>
+                <th className="px-4 py-3 text-right text-gray-400 font-medium">Paying</th>
+                <th className="px-4 py-3 text-right text-gray-400 font-medium">Started</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-dark-border">
+              {betaTesters.map((sub) => (
+                <tr key={sub.id} className="hover:bg-dark-surface">
+                  <td className="px-4 py-3">
+                    <div className="text-white font-medium">{sub.customerName || 'Unknown'}</div>
+                    <div className="text-xs text-gray-500">{sub.customerEmail}</div>
+                  </td>
+                  <td className="px-4 py-3">
+                    <span className="px-2 py-1 text-xs rounded bg-purple-500/20 text-purple-400">
+                      {sub.couponName || sub.couponId || 'Beta'}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3 text-right text-gray-400">
+                    ${sub.planAmount.toFixed(0)}/mo
+                  </td>
+                  <td className="px-4 py-3 text-right text-green-400 font-medium">
+                    ${sub.discountedAmount.toFixed(0)}/mo
+                  </td>
+                  <td className="px-4 py-3 text-right text-gray-400 text-sm">
+                    {sub.startDate.toLocaleDateString()}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {betaTesters.length === 0 && (
+            <div className="p-8 text-center text-gray-400">
+              No beta testers found.
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   )
 }
@@ -217,7 +904,7 @@ function MetricCard({
   value: string
   change?: number
   subtitle?: string
-  icon: React.ReactNode
+  icon?: React.ReactNode
   color: 'green' | 'blue' | 'primary' | 'red' | 'yellow'
 }) {
   const colorClasses = {
@@ -231,9 +918,11 @@ function MetricCard({
   return (
     <div className="bg-dark-card border border-dark-border rounded-lg p-4">
       <div className="flex items-start justify-between">
-        <div className={`p-2 rounded-lg ${colorClasses[color]}`}>
-          {icon}
-        </div>
+        {icon && (
+          <div className={`p-2 rounded-lg ${colorClasses[color]}`}>
+            {icon}
+          </div>
+        )}
         {change !== undefined && (
           <span className={`text-sm font-medium ${change >= 0 ? 'text-green-400' : 'text-red-400'}`}>
             {change >= 0 ? '+' : ''}{change}%
@@ -253,14 +942,16 @@ function SecondaryCard({
   label,
   value,
   subtitle,
+  alert,
 }: {
   label: string
   value: string
   subtitle?: string
+  alert?: boolean
 }) {
   return (
-    <div className="bg-dark-card border border-dark-border rounded-lg p-4">
-      <div className="text-xl font-bold text-white">{value}</div>
+    <div className={`bg-dark-card border rounded-lg p-4 ${alert ? 'border-red-500/50' : 'border-dark-border'}`}>
+      <div className={`text-xl font-bold ${alert ? 'text-red-400' : 'text-white'}`}>{value}</div>
       <div className="text-sm text-gray-400">{label}</div>
       {subtitle && <div className="text-xs text-gray-500 mt-1">{subtitle}</div>}
     </div>
@@ -277,7 +968,6 @@ function RevenueChart({ growthData }: { growthData: GrowthDataPoint[] }) {
       <div className="h-48 flex items-end gap-2">
         {growthData.map((point, index) => {
           const height = (point.mrr / maxMrr) * 100
-
           return (
             <div key={index} className="flex-1 flex flex-col items-center group">
               <div className="w-full relative">
@@ -300,37 +990,24 @@ function RevenueChart({ growthData }: { growthData: GrowthDataPoint[] }) {
   )
 }
 
-function CustomerChart({ growthData }: { growthData: GrowthDataPoint[] }) {
-  const maxCustomers = Math.max(...growthData.map(g => g.totalCustomers), 1)
+function CancellationChart({ data }: { data: { month: string; count: number; revenueLost: number }[] }) {
+  const maxCount = Math.max(...data.map(d => d.count), 1)
 
   return (
     <div className="bg-dark-card border border-dark-border rounded-lg p-6">
-      <h3 className="text-lg font-semibold text-white mb-4">Customer Growth</h3>
+      <h3 className="text-lg font-semibold text-white mb-4">Cancellations Over Time</h3>
       <div className="h-48 flex items-end gap-2">
-        {growthData.map((point, index) => {
-          const height = (point.totalCustomers / maxCustomers) * 100
-
+        {data.map((point, index) => {
+          const height = (point.count / maxCount) * 100
           return (
             <div key={index} className="flex-1 flex flex-col items-center group">
-              <div className="w-full relative flex flex-col-reverse">
-                {/* Individual members (blue) */}
+              <div className="w-full relative">
                 <div
-                  className="w-full bg-blue-500 rounded-b transition-all"
-                  style={{
-                    height: `${maxCustomers > 0 ? (point.individualCount / maxCustomers) * 100 : 0}%`,
-                    minHeight: point.individualCount > 0 ? '4px' : '0px'
-                  }}
-                />
-                {/* League coaches (amber) */}
-                <div
-                  className="w-full bg-primary rounded-t transition-all"
-                  style={{
-                    height: `${maxCustomers > 0 ? (point.leagueCount / maxCustomers) * 100 : 0}%`,
-                    minHeight: point.leagueCount > 0 ? '4px' : '0px'
-                  }}
+                  className="w-full bg-gradient-to-t from-red-600 to-red-400 rounded-t transition-all hover:from-red-500 hover:to-red-300"
+                  style={{ height: `${Math.max(height, 4)}%`, minHeight: point.count > 0 ? '8px' : '4px' }}
                 />
                 <div className="absolute -top-8 left-1/2 -translate-x-1/2 bg-dark-surface border border-dark-border rounded px-2 py-1 text-xs text-white opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-10">
-                  {point.totalCustomers} ({point.individualCount}+{point.leagueCount})
+                  {point.count} (${point.revenueLost.toFixed(0)} lost)
                 </div>
               </div>
               <span className="text-[10px] text-gray-500 mt-2 truncate w-full text-center">
@@ -340,22 +1017,62 @@ function CustomerChart({ growthData }: { growthData: GrowthDataPoint[] }) {
           )
         })}
       </div>
-      {/* Legend */}
+    </div>
+  )
+}
+
+function CustomerChart({ growthData }: { growthData: GrowthDataPoint[] }) {
+  const maxCustomers = Math.max(...growthData.map(g => g.totalCustomers), 1)
+
+  return (
+    <div className="bg-dark-card border border-dark-border rounded-lg p-6">
+      <h3 className="text-lg font-semibold text-white mb-4">Customer Growth</h3>
+      <div className="h-48 flex items-end gap-2">
+        {growthData.map((point, index) => {
+          const height = (point.totalCustomers / maxCustomers) * 100
+          return (
+            <div key={index} className="flex-1 flex flex-col items-center group">
+              <div className="w-full relative flex flex-col-reverse">
+                <div
+                  className="w-full bg-blue-500 rounded-b transition-all"
+                  style={{
+                    height: `${maxCustomers > 0 ? (point.individualCount / maxCustomers) * 100 : 0}%`,
+                    minHeight: point.individualCount > 0 ? '4px' : '0px'
+                  }}
+                />
+                <div
+                  className="w-full bg-primary rounded-t transition-all"
+                  style={{
+                    height: `${maxCustomers > 0 ? (point.leagueCount / maxCustomers) * 100 : 0}%`,
+                    minHeight: point.leagueCount > 0 ? '4px' : '0px'
+                  }}
+                />
+                <div className="absolute -top-8 left-1/2 -translate-x-1/2 bg-dark-surface border border-dark-border rounded px-2 py-1 text-xs text-white opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-10">
+                  {point.totalCustomers}
+                </div>
+              </div>
+              <span className="text-[10px] text-gray-500 mt-2 truncate w-full text-center">
+                {point.month}
+              </span>
+            </div>
+          )
+        })}
+      </div>
       <div className="flex items-center justify-center gap-4 mt-4 text-xs">
         <div className="flex items-center gap-1">
           <div className="w-3 h-3 rounded bg-blue-500" />
-          <span className="text-gray-400">Individual Members</span>
+          <span className="text-gray-400">Individual</span>
         </div>
         <div className="flex items-center gap-1">
           <div className="w-3 h-3 rounded bg-primary" />
-          <span className="text-gray-400">League Coaches</span>
+          <span className="text-gray-400">League</span>
         </div>
       </div>
     </div>
   )
 }
 
-function RevenueBreakdown({ metrics }: { metrics: RealRevenueMetrics }) {
+function RevenueBreakdown({ metrics, stripeMetrics }: { metrics: RealRevenueMetrics; stripeMetrics?: StripeMetrics }) {
   const totalMonthly = metrics.individualMRR + metrics.leagueMRR
   const individualPercent = totalMonthly > 0 ? (metrics.individualMRR / totalMonthly) * 100 : 0
   const leaguePercent = totalMonthly > 0 ? (metrics.leagueMRR / totalMonthly) * 100 : 0
@@ -364,26 +1081,17 @@ function RevenueBreakdown({ metrics }: { metrics: RealRevenueMetrics }) {
     <div className="bg-dark-card border border-dark-border rounded-lg p-6">
       <h3 className="text-lg font-semibold text-white mb-4">Revenue Breakdown</h3>
       <div className="flex items-center gap-6">
-        {/* Pie chart visualization */}
         <div className="relative w-32 h-32 flex-shrink-0">
           <svg viewBox="0 0 36 36" className="w-full h-full transform -rotate-90">
             <circle
-              cx="18"
-              cy="18"
-              r="15.9155"
-              fill="none"
-              stroke="#3b82f6"
-              strokeWidth="3"
+              cx="18" cy="18" r="15.9155"
+              fill="none" stroke="#3b82f6" strokeWidth="3"
               strokeDasharray={`${individualPercent} ${100 - individualPercent}`}
               strokeDashoffset="0"
             />
             <circle
-              cx="18"
-              cy="18"
-              r="15.9155"
-              fill="none"
-              stroke="#f59e0b"
-              strokeWidth="3"
+              cx="18" cy="18" r="15.9155"
+              fill="none" stroke="#f59e0b" strokeWidth="3"
               strokeDasharray={`${leaguePercent} ${100 - leaguePercent}`}
               strokeDashoffset={-individualPercent}
             />
@@ -392,8 +1100,6 @@ function RevenueBreakdown({ metrics }: { metrics: RealRevenueMetrics }) {
             <span className="text-white font-bold">${Math.round(totalMonthly)}</span>
           </div>
         </div>
-
-        {/* Legend */}
         <div className="flex-1 space-y-3">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
@@ -422,20 +1128,16 @@ function RevenueBreakdown({ metrics }: { metrics: RealRevenueMetrics }) {
 }
 
 // ========== INDIVIDUAL MEMBERS SECTION ==========
-function IndividualsSection({ members }: { members: IndividualMember[] }) {
+function IndividualsSection({ members, subscriptions }: { members: IndividualMember[]; subscriptions?: StripeSubscription[] }) {
   const sortedMembers = [...members].sort((a, b) => b.totalRevenue - a.totalRevenue)
   const totalRevenue = members.reduce((sum, m) => sum + m.totalRevenue, 0)
 
-  // Group by organization for summary
-  const orgGroups = new Map<string, number>()
-  members.forEach(m => {
-    const orgName = m.organizationName || 'Unknown'
-    orgGroups.set(orgName, (orgGroups.get(orgName) || 0) + 1)
-  })
+  const getStripeStatus = (email: string): StripeSubscription | undefined => {
+    return subscriptions?.find(s => s.customerEmail?.toLowerCase() === email.toLowerCase())
+  }
 
   return (
     <div className="space-y-6">
-      {/* Summary */}
       <div className="bg-blue-500/10 border border-blue-500/30 rounded-lg p-6">
         <div className="flex items-center justify-between">
           <div>
@@ -443,15 +1145,6 @@ function IndividualsSection({ members }: { members: IndividualMember[] }) {
             <p className="text-gray-400 text-sm mt-1">
               Members from INDIVIDUAL/OPERATIONS type organizations paying $20/month
             </p>
-            {orgGroups.size > 0 && (
-              <div className="flex flex-wrap gap-2 mt-2">
-                {Array.from(orgGroups.entries()).map(([orgName, count]) => (
-                  <span key={orgName} className="px-2 py-0.5 text-xs rounded bg-blue-500/20 text-blue-300">
-                    {orgName}: {count}
-                  </span>
-                ))}
-              </div>
-            )}
           </div>
           <div className="text-right">
             <div className="text-2xl font-bold text-blue-400">{members.length}</div>
@@ -460,7 +1153,6 @@ function IndividualsSection({ members }: { members: IndividualMember[] }) {
         </div>
       </div>
 
-      {/* Members Table */}
       <div className="bg-dark-card border border-dark-border rounded-lg overflow-hidden">
         <div className="px-4 py-3 border-b border-dark-border bg-dark-surface">
           <h3 className="font-medium text-white">Member List</h3>
@@ -470,35 +1162,48 @@ function IndividualsSection({ members }: { members: IndividualMember[] }) {
             <thead>
               <tr className="border-b border-dark-border bg-dark-surface text-sm">
                 <th className="px-4 py-3 text-left text-gray-400 font-medium">Name</th>
-                <th className="px-4 py-3 text-left text-gray-400 font-medium">Organization</th>
                 <th className="px-4 py-3 text-left text-gray-400 font-medium">Email</th>
+                {subscriptions && <th className="px-4 py-3 text-center text-gray-400 font-medium">Status</th>}
+                {subscriptions && <th className="px-4 py-3 text-left text-gray-400 font-medium">Coupon</th>}
                 <th className="px-4 py-3 text-right text-gray-400 font-medium">Joined</th>
-                <th className="px-4 py-3 text-right text-gray-400 font-medium">Months</th>
-                <th className="px-4 py-3 text-right text-gray-400 font-medium">Total Revenue</th>
+                <th className="px-4 py-3 text-right text-gray-400 font-medium">Revenue</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-dark-border">
-              {sortedMembers.map((member) => (
-                <tr key={member.id} className="hover:bg-dark-surface">
-                  <td className="px-4 py-3 text-white font-medium">{member.name}</td>
-                  <td className="px-4 py-3 text-gray-300 text-sm">{member.organizationName || '-'}</td>
-                  <td className="px-4 py-3 text-gray-400 text-sm">{member.email}</td>
-                  <td className="px-4 py-3 text-right text-gray-400 text-sm">
-                    {new Date(member.joinedAt).toLocaleDateString()}
-                  </td>
-                  <td className="px-4 py-3 text-right">
-                    <span className="text-blue-400 font-medium">{member.monthsActive}</span>
-                  </td>
-                  <td className="px-4 py-3 text-right text-white font-medium">
-                    ${member.totalRevenue}
-                  </td>
-                </tr>
-              ))}
+              {sortedMembers.map((member) => {
+                const stripeSub = getStripeStatus(member.email)
+                return (
+                  <tr key={member.id} className="hover:bg-dark-surface">
+                    <td className="px-4 py-3 text-white font-medium">{member.name}</td>
+                    <td className="px-4 py-3 text-gray-400 text-sm">{member.email}</td>
+                    {subscriptions && (
+                      <td className="px-4 py-3 text-center">
+                        {stripeSub ? (
+                          <StatusBadge status={stripeSub.status} />
+                        ) : (
+                          <span className="text-gray-500 text-xs">No subscription</span>
+                        )}
+                      </td>
+                    )}
+                    {subscriptions && (
+                      <td className="px-4 py-3 text-gray-400 text-sm">
+                        {stripeSub?.couponName || stripeSub?.couponId || '-'}
+                      </td>
+                    )}
+                    <td className="px-4 py-3 text-right text-gray-400 text-sm">
+                      {new Date(member.joinedAt).toLocaleDateString()}
+                    </td>
+                    <td className="px-4 py-3 text-right text-white font-medium">
+                      ${member.totalRevenue}
+                    </td>
+                  </tr>
+                )
+              })}
             </tbody>
           </table>
           {members.length === 0 && (
             <div className="p-8 text-center text-gray-400">
-              No individual members found. Add members to INDIVIDUAL or OPERATIONS type organizations.
+              No individual members found.
             </div>
           )}
         </div>
@@ -508,21 +1213,16 @@ function IndividualsSection({ members }: { members: IndividualMember[] }) {
 }
 
 // ========== LEAGUE COACHES SECTION ==========
-function LeaguesSection({ coaches }: { coaches: LeagueCoach[] }) {
+function LeaguesSection({ coaches, subscriptions }: { coaches: LeagueCoach[]; subscriptions?: StripeSubscription[] }) {
   const sortedCoaches = [...coaches].sort((a, b) => b.totalRevenue - a.totalRevenue)
   const totalRevenue = coaches.reduce((sum, c) => sum + c.totalRevenue, 0)
 
-  // Group by organization
-  const orgGroups = new Map<string, LeagueCoach[]>()
-  coaches.forEach(coach => {
-    const existing = orgGroups.get(coach.organizationName) || []
-    existing.push(coach)
-    orgGroups.set(coach.organizationName, existing)
-  })
+  const getStripeStatus = (email: string): StripeSubscription | undefined => {
+    return subscriptions?.find(s => s.customerEmail?.toLowerCase() === email.toLowerCase())
+  }
 
   return (
     <div className="space-y-6">
-      {/* Summary */}
       <div className="bg-primary/10 border border-primary/30 rounded-lg p-6">
         <div className="flex items-center justify-between">
           <div>
@@ -531,27 +1231,11 @@ function LeaguesSection({ coaches }: { coaches: LeagueCoach[] }) {
           </div>
           <div className="text-right">
             <div className="text-2xl font-bold text-primary">{coaches.length}</div>
-            <div className="text-sm text-gray-400">
-              {orgGroups.size} orgs | Total: ${totalRevenue}
-            </div>
+            <div className="text-sm text-gray-400">Total: ${totalRevenue}</div>
           </div>
         </div>
       </div>
 
-      {/* Organization Summary */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        {Array.from(orgGroups.entries()).slice(0, 8).map(([orgName, orgCoaches]) => (
-          <div key={orgName} className="bg-dark-card border border-dark-border rounded-lg p-4">
-            <div className="text-lg font-bold text-white">{orgCoaches.length}</div>
-            <div className="text-sm text-gray-400 truncate" title={orgName}>{orgName}</div>
-            <div className="text-xs text-primary mt-1">
-              ${orgCoaches.reduce((sum, c) => sum + c.totalRevenue, 0)} revenue
-            </div>
-          </div>
-        ))}
-      </div>
-
-      {/* Coaches Table */}
       <div className="bg-dark-card border border-dark-border rounded-lg overflow-hidden">
         <div className="px-4 py-3 border-b border-dark-border bg-dark-surface">
           <h3 className="font-medium text-white">Coach List</h3>
@@ -562,41 +1246,50 @@ function LeaguesSection({ coaches }: { coaches: LeagueCoach[] }) {
               <tr className="border-b border-dark-border bg-dark-surface text-sm">
                 <th className="px-4 py-3 text-left text-gray-400 font-medium">Name</th>
                 <th className="px-4 py-3 text-left text-gray-400 font-medium">Organization</th>
-                <th className="px-4 py-3 text-left text-gray-400 font-medium">Role</th>
+                {subscriptions && <th className="px-4 py-3 text-center text-gray-400 font-medium">Status</th>}
+                {subscriptions && <th className="px-4 py-3 text-left text-gray-400 font-medium">Coupon</th>}
                 <th className="px-4 py-3 text-right text-gray-400 font-medium">Joined</th>
-                <th className="px-4 py-3 text-right text-gray-400 font-medium">Seasons</th>
-                <th className="px-4 py-3 text-right text-gray-400 font-medium">Total Revenue</th>
+                <th className="px-4 py-3 text-right text-gray-400 font-medium">Revenue</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-dark-border">
-              {sortedCoaches.map((coach) => (
-                <tr key={coach.id} className="hover:bg-dark-surface">
-                  <td className="px-4 py-3">
-                    <div className="text-white font-medium">{coach.name}</div>
-                    <div className="text-xs text-gray-500">{coach.email}</div>
-                  </td>
-                  <td className="px-4 py-3 text-gray-300 text-sm">{coach.organizationName}</td>
-                  <td className="px-4 py-3">
-                    <span className="px-2 py-1 text-xs rounded bg-primary/20 text-primary capitalize">
-                      {coach.role}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3 text-right text-gray-400 text-sm">
-                    {new Date(coach.joinedAt).toLocaleDateString()}
-                  </td>
-                  <td className="px-4 py-3 text-right">
-                    <span className="text-primary font-medium">{coach.seasonsActive}</span>
-                  </td>
-                  <td className="px-4 py-3 text-right text-white font-medium">
-                    ${coach.totalRevenue}
-                  </td>
-                </tr>
-              ))}
+              {sortedCoaches.map((coach) => {
+                const stripeSub = getStripeStatus(coach.email)
+                return (
+                  <tr key={coach.id} className="hover:bg-dark-surface">
+                    <td className="px-4 py-3">
+                      <div className="text-white font-medium">{coach.name}</div>
+                      <div className="text-xs text-gray-500">{coach.email}</div>
+                    </td>
+                    <td className="px-4 py-3 text-gray-300 text-sm">{coach.organizationName}</td>
+                    {subscriptions && (
+                      <td className="px-4 py-3 text-center">
+                        {stripeSub ? (
+                          <StatusBadge status={stripeSub.status} />
+                        ) : (
+                          <span className="text-gray-500 text-xs">No subscription</span>
+                        )}
+                      </td>
+                    )}
+                    {subscriptions && (
+                      <td className="px-4 py-3 text-gray-400 text-sm">
+                        {stripeSub?.couponName || stripeSub?.couponId || '-'}
+                      </td>
+                    )}
+                    <td className="px-4 py-3 text-right text-gray-400 text-sm">
+                      {new Date(coach.joinedAt).toLocaleDateString()}
+                    </td>
+                    <td className="px-4 py-3 text-right text-white font-medium">
+                      ${coach.totalRevenue}
+                    </td>
+                  </tr>
+                )
+              })}
             </tbody>
           </table>
           {coaches.length === 0 && (
             <div className="p-8 text-center text-gray-400">
-              No league coaches found. Add staff/coaches to organizations other than &quot;Modern Day Coach&quot;.
+              No league coaches found.
             </div>
           )}
         </div>
@@ -605,8 +1298,27 @@ function LeaguesSection({ coaches }: { coaches: LeagueCoach[] }) {
   )
 }
 
+function StatusBadge({ status }: { status: StripeSubscription['status'] }) {
+  const styles = {
+    active: 'bg-green-500/20 text-green-400',
+    past_due: 'bg-orange-500/20 text-orange-400',
+    canceled: 'bg-red-500/20 text-red-400',
+    trialing: 'bg-blue-500/20 text-blue-400',
+    incomplete: 'bg-yellow-500/20 text-yellow-400',
+    incomplete_expired: 'bg-red-500/20 text-red-400',
+    unpaid: 'bg-red-500/20 text-red-400',
+    paused: 'bg-gray-500/20 text-gray-400',
+  }
+
+  return (
+    <span className={`px-2 py-1 text-xs rounded capitalize ${styles[status]}`}>
+      {status.replace('_', ' ')}
+    </span>
+  )
+}
+
 // ========== EXPORT SECTION ==========
-function ExportSection({ data }: { data: RealRevenueData }) {
+function ExportSection({ data, stripeData }: { data: RealRevenueData; stripeData?: RevenueDashboardProps['stripeData'] }) {
   const [exporting, setExporting] = useState<string | null>(null)
 
   const handleExport = (type: string) => {
@@ -620,7 +1332,6 @@ function ExportSection({ data }: { data: RealRevenueData }) {
         csvData = exportToCSV(
           data.individualMembers.map(m => ({
             name: m.name,
-            organization: m.organizationName || '-',
             email: m.email,
             joined: new Date(m.joinedAt).toLocaleDateString(),
             months_active: m.monthsActive,
@@ -628,7 +1339,6 @@ function ExportSection({ data }: { data: RealRevenueData }) {
           })),
           [
             { key: 'name', label: 'Name' },
-            { key: 'organization', label: 'Organization' },
             { key: 'email', label: 'Email' },
             { key: 'joined', label: 'Joined' },
             { key: 'months_active', label: 'Months Active' },
@@ -645,7 +1355,6 @@ function ExportSection({ data }: { data: RealRevenueData }) {
             organization: c.organizationName,
             role: c.role,
             joined: new Date(c.joinedAt).toLocaleDateString(),
-            seasons_active: c.seasonsActive,
             total_revenue: `$${c.totalRevenue}`,
           })),
           [
@@ -654,77 +1363,16 @@ function ExportSection({ data }: { data: RealRevenueData }) {
             { key: 'organization', label: 'Organization' },
             { key: 'role', label: 'Role' },
             { key: 'joined', label: 'Joined' },
-            { key: 'seasons_active', label: 'Seasons Active' },
             { key: 'total_revenue', label: 'Total Revenue' },
           ]
         )
         filename = 'league_coaches.csv'
         break
-      case 'all_customers':
-        const allCustomers = [
-          ...data.individualMembers.map(m => ({
-            name: m.name,
-            email: m.email,
-            type: 'Individual',
-            organization: 'Modern Day Coach',
-            joined: new Date(m.joinedAt).toLocaleDateString(),
-            periods_active: m.monthsActive,
-            total_revenue: `$${m.totalRevenue}`,
-          })),
-          ...data.leagueCoaches.map(c => ({
-            name: c.name,
-            email: c.email,
-            type: 'League Coach',
-            organization: c.organizationName,
-            joined: new Date(c.joinedAt).toLocaleDateString(),
-            periods_active: c.seasonsActive,
-            total_revenue: `$${c.totalRevenue}`,
-          })),
-        ]
-        csvData = exportToCSV(
-          allCustomers,
-          [
-            { key: 'name', label: 'Name' },
-            { key: 'email', label: 'Email' },
-            { key: 'type', label: 'Type' },
-            { key: 'organization', label: 'Organization' },
-            { key: 'joined', label: 'Joined' },
-            { key: 'periods_active', label: 'Periods Active' },
-            { key: 'total_revenue', label: 'Total Revenue' },
-          ]
-        )
-        filename = 'all_customers.csv'
-        break
-      case 'metrics':
-        csvData = exportToCSV(
-          data.growthData.map(g => ({
-            date: g.date,
-            month: g.month,
-            mrr: `$${g.mrr.toFixed(2)}`,
-            total_customers: g.totalCustomers,
-            individual_count: g.individualCount,
-            league_count: g.leagueCount,
-            individual_revenue: `$${g.individualRevenue}`,
-            league_revenue: `$${g.leagueRevenue.toFixed(2)}`,
-          })),
-          [
-            { key: 'date', label: 'Date' },
-            { key: 'month', label: 'Month' },
-            { key: 'mrr', label: 'MRR' },
-            { key: 'total_customers', label: 'Total Customers' },
-            { key: 'individual_count', label: 'Individual Count' },
-            { key: 'league_count', label: 'League Count' },
-            { key: 'individual_revenue', label: 'Individual Revenue' },
-            { key: 'league_revenue', label: 'League Revenue' },
-          ]
-        )
-        filename = 'revenue_metrics.csv'
-        break
       default:
+        setExporting(null)
         return
     }
 
-    // Download file
     const blob = new Blob([csvData], { type: 'text/csv;charset=utf-8;' })
     const url = URL.createObjectURL(blob)
     const link = document.createElement('a')
@@ -738,81 +1386,51 @@ function ExportSection({ data }: { data: RealRevenueData }) {
     setTimeout(() => setExporting(null), 1000)
   }
 
-  const exportOptions = [
-    { id: 'individuals', label: 'Individual Members', count: data.individualMembers.length, icon: <UsersIcon />, color: 'blue' },
-    { id: 'leagues', label: 'League Coaches', count: data.leagueCoaches.length, icon: <TeamIcon />, color: 'primary' },
-    { id: 'all_customers', label: 'All Customers', count: data.individualMembers.length + data.leagueCoaches.length, icon: <AllUsersIcon />, color: 'green' },
-    { id: 'metrics', label: 'Monthly Metrics', count: data.growthData.length, icon: <CalendarIcon />, color: 'purple' },
-  ]
-
   return (
-    <div className="space-y-6">
-      <div className="bg-dark-card border border-dark-border rounded-lg overflow-hidden">
-        <div className="px-4 py-3 border-b border-dark-border bg-dark-surface">
-          <h3 className="font-medium text-white">Export Revenue Data</h3>
-        </div>
-        <div className="p-4 grid grid-cols-1 sm:grid-cols-2 gap-3">
-          {exportOptions.map((option) => (
-            <button
-              key={option.id}
-              onClick={() => handleExport(option.id)}
-              disabled={exporting === option.id}
-              className="flex items-center gap-3 p-4 bg-dark-surface border border-dark-border rounded-lg hover:border-primary/50 transition-colors text-left disabled:opacity-50"
-            >
-              <div className="text-gray-400">{option.icon}</div>
-              <div className="flex-1">
-                <div className="text-white font-medium">{option.label}</div>
-                <div className="text-xs text-gray-500">{option.count} records</div>
-              </div>
-              {exporting === option.id ? (
-                <svg className="w-5 h-5 text-green-400 animate-spin" fill="none" viewBox="0 0 24 24">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-                </svg>
-              ) : (
-                <svg className="w-5 h-5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                </svg>
-              )}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* Summary Card */}
-      <div className="bg-dark-card border border-dark-border rounded-lg p-6">
-        <h3 className="text-lg font-semibold text-white mb-4">Revenue Summary</h3>
-        <div className="space-y-3 text-sm">
-          <div className="flex justify-between">
-            <span className="text-gray-400">Individual Members (Modern Day Coach)</span>
-            <span className="text-white">{data.individualMembers.length} @ $20/mo = ${data.metrics.individualMRR}/mo</span>
-          </div>
-          <div className="flex justify-between">
-            <span className="text-gray-400">League Coaches (Other Orgs)</span>
-            <span className="text-white">{data.leagueCoaches.length} @ $200/season = ${Math.round(data.metrics.leagueMRR)}/mo</span>
-          </div>
-          <div className="border-t border-dark-border pt-3 mt-3 flex justify-between font-medium">
-            <span className="text-gray-300">Total MRR</span>
-            <span className="text-primary">{formatCurrency(data.metrics.mrr * 100)}</span>
-          </div>
-          <div className="flex justify-between font-medium">
-            <span className="text-gray-300">Total ARR</span>
-            <span className="text-primary">{formatCurrency(data.metrics.arr * 100)}</span>
-          </div>
-          <div className="flex justify-between font-medium">
-            <span className="text-gray-300">All-Time Revenue</span>
-            <span className="text-green-400">{formatCurrency(data.metrics.totalRevenue * 100)}</span>
-          </div>
-        </div>
+    <div className="space-y-4">
+      <h3 className="text-lg font-semibold text-white">Export Data</h3>
+      <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+        <ExportButton
+          label="Individual Members"
+          onClick={() => handleExport('individuals')}
+          isExporting={exporting === 'individuals'}
+        />
+        <ExportButton
+          label="League Coaches"
+          onClick={() => handleExport('leagues')}
+          isExporting={exporting === 'leagues'}
+        />
       </div>
     </div>
+  )
+}
+
+function ExportButton({ label, onClick, isExporting }: { label: string; onClick: () => void; isExporting: boolean }) {
+  return (
+    <button
+      onClick={onClick}
+      disabled={isExporting}
+      className="flex items-center justify-center gap-2 p-4 bg-dark-card border border-dark-border rounded-lg hover:border-primary/50 transition-colors"
+    >
+      {isExporting ? (
+        <svg className="w-5 h-5 animate-spin text-primary" fill="none" viewBox="0 0 24 24">
+          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+        </svg>
+      ) : (
+        <svg className="w-5 h-5 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+        </svg>
+      )}
+      <span className="text-white">{label}</span>
+    </button>
   )
 }
 
 // ========== ICONS ==========
 function DollarIcon() {
   return (
-    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
     </svg>
   )
@@ -820,7 +1438,7 @@ function DollarIcon() {
 
 function CalendarIcon() {
   return (
-    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
     </svg>
   )
@@ -828,7 +1446,7 @@ function CalendarIcon() {
 
 function UsersIcon() {
   return (
-    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" />
     </svg>
   )
@@ -836,24 +1454,32 @@ function UsersIcon() {
 
 function TrendIcon() {
   return (
-    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
     </svg>
   )
 }
 
-function TeamIcon() {
+function TrendDownIcon() {
   return (
-    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" />
+    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 17h8m0 0V9m0 8l-8-8-4 4-6-6" />
     </svg>
   )
 }
 
-function AllUsersIcon() {
+function CancelIcon() {
   return (
-    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+    </svg>
+  )
+}
+
+function ChurnIcon() {
+  return (
+    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
     </svg>
   )
 }

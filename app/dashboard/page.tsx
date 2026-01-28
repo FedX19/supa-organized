@@ -42,6 +42,30 @@ import AnalyticsDashboard from '@/components/AnalyticsDashboard'
 import ConnectionsPanel from '@/components/ConnectionsPanel'
 import RevenueDashboard from '@/components/RevenueDashboard'
 import ActivityLog from '@/components/ActivityLog'
+import {
+  StripeMetrics,
+  StripeSubscription,
+  StripeCancellation,
+  StripePayment,
+  CancellationAnalysis,
+  StripeCoupon,
+  StripeDataSyncResult,
+} from '@/lib/stripe'
+
+// Stripe data state type
+interface StripeDataState {
+  hasData: boolean
+  metrics?: StripeMetrics
+  cancellationAnalysis?: CancellationAnalysis
+  activeSubscriptions?: StripeSubscription[]
+  canceledSubscriptions?: StripeSubscription[]
+  pastDueSubscriptions?: StripeSubscription[]
+  scheduledCancellations?: StripeSubscription[]
+  betaTesters?: StripeSubscription[]
+  failedPayments?: StripePayment[]
+  couponUsage?: { coupon: StripeCoupon; customerCount: number; revenueImpact: number }[]
+  lastSyncedAt?: string | null
+}
 
 type SidebarView = 'dashboard' | 'analytics' | 'connections' | 'revenue' | 'activity'
 type Tab = 'organizations' | 'users' | 'issues' | 'relationships' | 'export'
@@ -146,6 +170,10 @@ function DashboardContent() {
     hasData: false,
   })
   const [revenueLoading, setRevenueLoading] = useState(false)
+
+  // Stripe data
+  const [stripeData, setStripeData] = useState<StripeDataState>({ hasData: false })
+  const [isStripeRefreshing, setIsStripeRefreshing] = useState(false)
 
   // Organization view state
   const [orgView, setOrgView] = useState<OrgView>('grid')
@@ -367,6 +395,111 @@ function DashboardContent() {
 
     loadRevenue()
   }, [connection, sidebarView, getValidAccessToken])
+
+  // Load Stripe data when revenue view is active
+  useEffect(() => {
+    async function loadStripeData() {
+      if (sidebarView !== 'revenue') return
+
+      try {
+        const token = await getValidAccessToken()
+        if (!token) return
+
+        const response = await fetch('/api/stripe/sync', {
+          method: 'GET',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+          },
+        })
+
+        if (response.ok) {
+          const data = await response.json()
+          if (data.success) {
+            setStripeData(data)
+          }
+        }
+      } catch (error) {
+        console.error('Error loading Stripe data:', error)
+      }
+    }
+
+    loadStripeData()
+  }, [sidebarView, getValidAccessToken])
+
+  // Handle refresh Stripe data
+  const handleRefreshStripeData = useCallback(async () => {
+    setIsStripeRefreshing(true)
+
+    try {
+      const token = await getValidAccessToken()
+      if (!token) {
+        return { success: false, error: 'Session expired' }
+      }
+
+      const response = await fetch('/api/stripe/sync', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+      })
+
+      const data = await response.json()
+
+      if (data.success) {
+        // Update local state with fresh data
+        setStripeData({
+          hasData: true,
+          metrics: data.metrics,
+          cancellationAnalysis: data.cancellationAnalysis,
+          lastSyncedAt: data.lastSyncedAt,
+        })
+
+        // Log the sync action
+        logAuditEvent({
+          actionType: 'run_diagnostic',
+          actionCategory: 'revenue',
+          targetType: 'stripe_data',
+          targetName: 'Stripe Sync',
+          details: {
+            subscriptions: data.syncResult?.subscriptions,
+            cancellations: data.syncResult?.cancellations,
+          },
+        })
+
+        // Fetch the full data to populate all lists
+        const fullResponse = await fetch('/api/stripe/sync', {
+          method: 'GET',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+          },
+        })
+
+        if (fullResponse.ok) {
+          const fullData = await fullResponse.json()
+          if (fullData.success) {
+            setStripeData(fullData)
+          }
+        }
+
+        return {
+          success: true,
+          syncResult: data.syncResult,
+          metrics: data.metrics,
+          cancellationAnalysis: data.cancellationAnalysis,
+        }
+      } else {
+        return { success: false, error: data.error }
+      }
+    } catch (error) {
+      console.error('Stripe sync error:', error)
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error',
+      }
+    } finally {
+      setIsStripeRefreshing(false)
+    }
+  }, [getValidAccessToken])
 
   // Handle refresh activity data
   const handleRefreshActivityData = useCallback(async (): Promise<RefreshActivityResult> => {
@@ -879,7 +1012,12 @@ function DashboardContent() {
                 </div>
               </div>
             ) : (
-              <RevenueDashboard data={revenueData} />
+              <RevenueDashboard
+              data={revenueData}
+              onRefreshStripe={handleRefreshStripeData}
+              stripeData={stripeData}
+              isRefreshing={isStripeRefreshing}
+            />
             )
           ) : (
             <div className="bg-dark-card border border-dark-border rounded-lg p-8 text-center">
