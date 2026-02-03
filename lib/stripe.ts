@@ -838,3 +838,587 @@ export function exportPaymentsToCSV(): string {
 
   return [headers, ...rows].join('\n')
 }
+
+// ========== RETENTION & CHURN TYPES ==========
+
+export interface ActiveCancellation {
+  subscriptionId: string
+  customerId: string
+  customerEmail: string | null
+  customerName: string | null
+  canceledAt: Date
+  currentPeriodEnd: Date // Access ends here
+  cancelAtPeriodEnd: boolean
+  daysUntilAccessEnds: number
+  daysUntilDataPurge: number // currentPeriodEnd + 30 days
+  customerLifetimeDays: number
+  totalRevenuePaid: number
+  monthlyValue: number
+  cancellationReason: string | null
+  subscriptionType: 'individual' | 'league'
+}
+
+export interface AtRiskCustomer {
+  subscriptionId: string
+  customerId: string
+  customerEmail: string | null
+  customerName: string | null
+  status: string
+  monthlyValue: number
+  subscriptionType: 'individual' | 'league'
+  riskLevel: 'high' | 'medium' | 'low'
+  riskScore: number
+  riskFactors: string[]
+  daysSinceLastActivity: number
+  engagementScore: number
+  engagementTrend: 'increasing' | 'stable' | 'declining'
+  suggestedActions: string[]
+  startDate: Date
+  currentPeriodEnd: Date
+}
+
+export interface RetentionMetrics {
+  retention30Day: number
+  retention90Day: number
+  retention6Month: number
+  retention12Month: number
+  avgCustomerLifetimeDays: number
+  avgRevenuePerCustomer: number
+  avgTimeToChurn: number
+  monthlyChurnRate: number
+  revenueChurnRate: number
+  customersAtRisk: number
+  revenueAtRisk: number
+}
+
+export interface CohortData {
+  cohortMonth: string
+  signupCount: number
+  retentionByMonth: number[] // Array of retention % for months 0, 1, 2, etc.
+  totalRevenue: number
+  avgEngagement: number
+}
+
+export interface RetentionCurvePoint {
+  monthsSinceSignup: number
+  retentionPercent: number
+  customersRemaining: number
+  customersTotal: number
+}
+
+export interface ChurnReasonBreakdown {
+  reason: string
+  count: number
+  revenueImpact: number
+  percentOfChurn: number
+}
+
+export interface CustomerSegmentRetention {
+  segment: 'individual' | 'league' | 'beta_tester' | 'discounted'
+  segmentName: string
+  count: number
+  retentionRate: number
+  churnRate: number
+  avgLifetimeDays: number
+  avgLTV: number
+}
+
+export interface RetentionAnalysis {
+  metrics: RetentionMetrics
+  activeCancellations: ActiveCancellation[]
+  atRiskCustomers: AtRiskCustomer[]
+  cohortData: CohortData[]
+  retentionCurve: RetentionCurvePoint[]
+  churnReasons: ChurnReasonBreakdown[]
+  segmentRetention: CustomerSegmentRetention[]
+}
+
+// ========== RETENTION CALCULATION FUNCTIONS ==========
+
+export function calculateRetentionAnalysis(
+  subscriptions: StripeSubscription[],
+  payments: StripePayment[],
+  cancellations: StripeCancellation[]
+): RetentionAnalysis {
+  const now = new Date()
+
+  // Calculate active cancellations (in grace period)
+  const activeCancellations = calculateActiveCancellations(subscriptions, payments, now)
+
+  // Calculate at-risk customers
+  const atRiskCustomers = calculateAtRiskCustomers(subscriptions, payments, now)
+
+  // Calculate retention metrics
+  const metrics = calculateRetentionMetrics(subscriptions, payments, cancellations, atRiskCustomers, now)
+
+  // Calculate cohort data
+  const cohortData = calculateCohortData(subscriptions, now)
+
+  // Calculate retention curve
+  const retentionCurve = calculateRetentionCurve(subscriptions, now)
+
+  // Calculate churn reasons
+  const churnReasons = calculateChurnReasons(cancellations)
+
+  // Calculate segment retention
+  const segmentRetention = calculateSegmentRetention(subscriptions, cancellations, payments)
+
+  return {
+    metrics,
+    activeCancellations,
+    atRiskCustomers,
+    cohortData,
+    retentionCurve,
+    churnReasons,
+    segmentRetention,
+  }
+}
+
+function calculateActiveCancellations(
+  subscriptions: StripeSubscription[],
+  payments: StripePayment[],
+  now: Date
+): ActiveCancellation[] {
+  const activeCancellations: ActiveCancellation[] = []
+
+  // Group payments by customer for LTV calculation
+  const customerPayments = new Map<string, number>()
+  for (const p of payments.filter(p => p.status === 'succeeded')) {
+    customerPayments.set(p.customerId, (customerPayments.get(p.customerId) || 0) + p.amount)
+  }
+
+  // Find subscriptions that are canceled but still have access (in grace period)
+  // Or subscriptions scheduled to cancel at period end
+  for (const sub of subscriptions) {
+    const isCanceledWithAccess = sub.status === 'canceled' && sub.currentPeriodEnd > now
+    const isScheduledToCancel = sub.cancelAtPeriodEnd && sub.status === 'active'
+
+    if (isCanceledWithAccess || isScheduledToCancel) {
+      const daysUntilAccessEnds = Math.max(0, Math.ceil(
+        (sub.currentPeriodEnd.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)
+      ))
+
+      // Data purge is 30 days after access ends
+      const dataPurgeDate = new Date(sub.currentPeriodEnd)
+      dataPurgeDate.setDate(dataPurgeDate.getDate() + 30)
+      const daysUntilDataPurge = Math.max(0, Math.ceil(
+        (dataPurgeDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)
+      ))
+
+      const customerLifetimeDays = Math.floor(
+        ((sub.canceledAt || now).getTime() - sub.startDate.getTime()) / (1000 * 60 * 60 * 24)
+      )
+
+      activeCancellations.push({
+        subscriptionId: sub.id,
+        customerId: sub.customerId,
+        customerEmail: sub.customerEmail,
+        customerName: sub.customerName,
+        canceledAt: sub.canceledAt || now,
+        currentPeriodEnd: sub.currentPeriodEnd,
+        cancelAtPeriodEnd: sub.cancelAtPeriodEnd,
+        daysUntilAccessEnds,
+        daysUntilDataPurge,
+        customerLifetimeDays,
+        totalRevenuePaid: customerPayments.get(sub.customerId) || 0,
+        monthlyValue: sub.discountedAmount,
+        cancellationReason: sub.cancellationReason,
+        subscriptionType: sub.planAmount >= 100 ? 'league' : 'individual',
+      })
+    }
+  }
+
+  // Sort by days until access ends (ascending)
+  return activeCancellations.sort((a, b) => a.daysUntilAccessEnds - b.daysUntilAccessEnds)
+}
+
+function calculateAtRiskCustomers(
+  subscriptions: StripeSubscription[],
+  payments: StripePayment[],
+  now: Date
+): AtRiskCustomer[] {
+  const atRiskCustomers: AtRiskCustomer[] = []
+  const activeSubscriptions = subscriptions.filter(s => s.status === 'active' && !s.cancelAtPeriodEnd)
+
+  // Group failed payments by customer
+  const failedPaymentsByCustomer = new Map<string, number>()
+  const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000)
+  for (const p of payments.filter(p => p.status === 'failed' && p.created >= thirtyDaysAgo)) {
+    failedPaymentsByCustomer.set(p.customerId, (failedPaymentsByCustomer.get(p.customerId) || 0) + 1)
+  }
+
+  for (const sub of activeSubscriptions) {
+    const riskFactors: string[] = []
+    let riskScore = 0
+
+    // Calculate days since signup (proxy for engagement if we don't have activity data)
+    const daysSinceSignup = Math.floor(
+      (now.getTime() - sub.startDate.getTime()) / (1000 * 60 * 60 * 24)
+    )
+
+    // Risk factor: Very new customer (first 30 days = higher churn risk)
+    if (daysSinceSignup <= 30) {
+      riskFactors.push('New customer (first 30 days)')
+      riskScore += 15
+    }
+
+    // Risk factor: Past due status
+    if (sub.status === 'past_due') {
+      riskFactors.push('Payment past due')
+      riskScore += 40
+    }
+
+    // Risk factor: Failed payments
+    const failedCount = failedPaymentsByCustomer.get(sub.customerId) || 0
+    if (failedCount > 0) {
+      riskFactors.push(`${failedCount} failed payment(s) in last 30 days`)
+      riskScore += failedCount * 20
+    }
+
+    // Risk factor: Beta tester (free accounts may churn when asked to pay)
+    if (sub.couponPercentOff === 100 || sub.couponId?.toLowerCase().includes('beta')) {
+      riskFactors.push('Beta tester (100% discount)')
+      riskScore += 25
+    }
+
+    // Risk factor: Coupon expiring soon
+    if (sub.couponDuration === 'repeating' && sub.couponId) {
+      riskFactors.push('Discount may expire soon')
+      riskScore += 10
+    }
+
+    // Only include if risk score is significant
+    if (riskScore >= 15) {
+      const riskLevel: 'high' | 'medium' | 'low' =
+        riskScore >= 50 ? 'high' : riskScore >= 30 ? 'medium' : 'low'
+
+      // Generate suggested actions based on risk factors
+      const suggestedActions: string[] = []
+      if (riskFactors.some(f => f.includes('failed payment'))) {
+        suggestedActions.push('Update payment method')
+        suggestedActions.push('Contact about billing')
+      }
+      if (riskFactors.some(f => f.includes('Beta tester'))) {
+        suggestedActions.push('Schedule conversion call')
+        suggestedActions.push('Offer limited-time discount')
+      }
+      if (riskFactors.some(f => f.includes('New customer'))) {
+        suggestedActions.push('Send onboarding tips')
+        suggestedActions.push('Schedule check-in call')
+      }
+
+      atRiskCustomers.push({
+        subscriptionId: sub.id,
+        customerId: sub.customerId,
+        customerEmail: sub.customerEmail,
+        customerName: sub.customerName,
+        status: sub.status,
+        monthlyValue: sub.discountedAmount,
+        subscriptionType: sub.planAmount >= 100 ? 'league' : 'individual',
+        riskLevel,
+        riskScore,
+        riskFactors,
+        daysSinceLastActivity: daysSinceSignup, // Placeholder - would need activity data
+        engagementScore: Math.max(0, 100 - daysSinceSignup), // Simplified engagement proxy
+        engagementTrend: 'stable', // Would need activity data to calculate
+        suggestedActions,
+        startDate: sub.startDate,
+        currentPeriodEnd: sub.currentPeriodEnd,
+      })
+    }
+  }
+
+  // Sort by risk score (highest first)
+  return atRiskCustomers.sort((a, b) => b.riskScore - a.riskScore)
+}
+
+function calculateRetentionMetrics(
+  subscriptions: StripeSubscription[],
+  payments: StripePayment[],
+  cancellations: StripeCancellation[],
+  atRiskCustomers: AtRiskCustomer[],
+  now: Date
+): RetentionMetrics {
+  const activeSubscriptions = subscriptions.filter(s => s.status === 'active')
+  const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000)
+  const ninetyDaysAgo = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000)
+  const sixMonthsAgo = new Date(now.getTime() - 180 * 24 * 60 * 60 * 1000)
+  const oneYearAgo = new Date(now.getTime() - 365 * 24 * 60 * 60 * 1000)
+
+  // Calculate retention rates by looking at signup cohorts
+  const signupsBefore30Days = subscriptions.filter(s => s.startDate <= thirtyDaysAgo)
+  const stillActive30Days = signupsBefore30Days.filter(s => s.status === 'active' || (s.canceledAt && s.canceledAt > thirtyDaysAgo))
+  const retention30Day = signupsBefore30Days.length > 0
+    ? (stillActive30Days.length / signupsBefore30Days.length) * 100
+    : 100
+
+  const signupsBefore90Days = subscriptions.filter(s => s.startDate <= ninetyDaysAgo)
+  const stillActive90Days = signupsBefore90Days.filter(s => s.status === 'active' || (s.canceledAt && s.canceledAt > ninetyDaysAgo))
+  const retention90Day = signupsBefore90Days.length > 0
+    ? (stillActive90Days.length / signupsBefore90Days.length) * 100
+    : 100
+
+  const signupsBefore6Months = subscriptions.filter(s => s.startDate <= sixMonthsAgo)
+  const stillActive6Months = signupsBefore6Months.filter(s => s.status === 'active' || (s.canceledAt && s.canceledAt > sixMonthsAgo))
+  const retention6Month = signupsBefore6Months.length > 0
+    ? (stillActive6Months.length / signupsBefore6Months.length) * 100
+    : 100
+
+  const signupsBefore1Year = subscriptions.filter(s => s.startDate <= oneYearAgo)
+  const stillActive1Year = signupsBefore1Year.filter(s => s.status === 'active' || (s.canceledAt && s.canceledAt > oneYearAgo))
+  const retention12Month = signupsBefore1Year.length > 0
+    ? (stillActive1Year.length / signupsBefore1Year.length) * 100
+    : 100
+
+  // Average customer lifetime
+  const allCustomerLifetimes = cancellations.map(c => c.daysAsCustomer)
+  const avgCustomerLifetimeDays = allCustomerLifetimes.length > 0
+    ? allCustomerLifetimes.reduce((a, b) => a + b, 0) / allCustomerLifetimes.length
+    : 0
+
+  // Average revenue per customer (LTV)
+  const customerRevenue = new Map<string, number>()
+  for (const p of payments.filter(p => p.status === 'succeeded')) {
+    customerRevenue.set(p.customerId, (customerRevenue.get(p.customerId) || 0) + p.amount)
+  }
+  const avgRevenuePerCustomer = customerRevenue.size > 0
+    ? Array.from(customerRevenue.values()).reduce((a, b) => a + b, 0) / customerRevenue.size
+    : 0
+
+  // Average time to churn
+  const avgTimeToChurn = avgCustomerLifetimeDays
+
+  // Monthly churn rate
+  const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1)
+  const cancelsThisMonth = cancellations.filter(c => c.canceledAt >= startOfMonth).length
+  const activeAtStartOfMonth = subscriptions.filter(s => {
+    if (s.status === 'active') return true
+    if (s.status === 'canceled' && s.canceledAt && s.canceledAt >= startOfMonth) return true
+    return false
+  }).length
+  const monthlyChurnRate = activeAtStartOfMonth > 0
+    ? (cancelsThisMonth / activeAtStartOfMonth) * 100
+    : 0
+
+  // Revenue churn rate
+  const mrrAtRisk = cancellations
+    .filter(c => c.canceledAt >= startOfMonth)
+    .reduce((sum, c) => sum + c.monthlyValue, 0)
+  const totalMRR = activeSubscriptions.reduce((sum, s) => sum + s.discountedAmount, 0)
+  const revenueChurnRate = totalMRR > 0 ? (mrrAtRisk / totalMRR) * 100 : 0
+
+  // Customers and revenue at risk
+  const customersAtRisk = atRiskCustomers.length
+  const revenueAtRisk = atRiskCustomers.reduce((sum, c) => sum + c.monthlyValue, 0)
+
+  return {
+    retention30Day: Math.round(retention30Day * 10) / 10,
+    retention90Day: Math.round(retention90Day * 10) / 10,
+    retention6Month: Math.round(retention6Month * 10) / 10,
+    retention12Month: Math.round(retention12Month * 10) / 10,
+    avgCustomerLifetimeDays: Math.round(avgCustomerLifetimeDays),
+    avgRevenuePerCustomer: Math.round(avgRevenuePerCustomer * 100) / 100,
+    avgTimeToChurn: Math.round(avgTimeToChurn),
+    monthlyChurnRate: Math.round(monthlyChurnRate * 100) / 100,
+    revenueChurnRate: Math.round(revenueChurnRate * 100) / 100,
+    customersAtRisk,
+    revenueAtRisk: Math.round(revenueAtRisk * 100) / 100,
+  }
+}
+
+function calculateCohortData(subscriptions: StripeSubscription[], now: Date): CohortData[] {
+  const cohorts: CohortData[] = []
+
+  // Group subscriptions by signup month (last 12 months)
+  for (let i = 11; i >= 0; i--) {
+    const cohortStartDate = new Date(now.getFullYear(), now.getMonth() - i, 1)
+    const cohortEndDate = new Date(now.getFullYear(), now.getMonth() - i + 1, 1)
+
+    const cohortSubs = subscriptions.filter(s =>
+      s.startDate >= cohortStartDate && s.startDate < cohortEndDate
+    )
+
+    if (cohortSubs.length === 0) continue
+
+    // Calculate retention for each month after signup
+    const retentionByMonth: number[] = []
+    const monthsSinceCohort = i
+
+    for (let month = 0; month <= monthsSinceCohort; month++) {
+      const checkDate = new Date(cohortStartDate.getFullYear(), cohortStartDate.getMonth() + month + 1, 1)
+
+      const stillActive = cohortSubs.filter(s => {
+        if (s.status === 'active') return true
+        if (s.canceledAt && s.canceledAt >= checkDate) return true
+        return false
+      }).length
+
+      retentionByMonth.push(Math.round((stillActive / cohortSubs.length) * 100))
+    }
+
+    cohorts.push({
+      cohortMonth: cohortStartDate.toLocaleDateString('en-US', { month: 'short', year: '2-digit' }),
+      signupCount: cohortSubs.length,
+      retentionByMonth,
+      totalRevenue: cohortSubs.reduce((sum, s) => sum + s.discountedAmount, 0),
+      avgEngagement: 0, // Would need activity data
+    })
+  }
+
+  return cohorts
+}
+
+function calculateRetentionCurve(subscriptions: StripeSubscription[], now: Date): RetentionCurvePoint[] {
+  const curve: RetentionCurvePoint[] = []
+
+  // Only consider subscriptions old enough to analyze
+  const allSubs = subscriptions.filter(s => {
+    const monthsSinceSignup = Math.floor(
+      (now.getTime() - s.startDate.getTime()) / (1000 * 60 * 60 * 24 * 30)
+    )
+    return monthsSinceSignup >= 0
+  })
+
+  if (allSubs.length === 0) return curve
+
+  // Calculate retention at each month (0-12)
+  for (let month = 0; month <= 12; month++) {
+    // Only include subs that are old enough for this data point
+    const eligibleSubs = allSubs.filter(s => {
+      const monthsSinceSignup = Math.floor(
+        (now.getTime() - s.startDate.getTime()) / (1000 * 60 * 60 * 24 * 30)
+      )
+      return monthsSinceSignup >= month
+    })
+
+    if (eligibleSubs.length === 0) continue
+
+    // Count how many were still active at month X
+    const retained = eligibleSubs.filter(s => {
+      if (s.status === 'active') return true
+      if (s.canceledAt) {
+        const monthsActiveBeforeCancel = Math.floor(
+          (s.canceledAt.getTime() - s.startDate.getTime()) / (1000 * 60 * 60 * 24 * 30)
+        )
+        return monthsActiveBeforeCancel >= month
+      }
+      return false
+    }).length
+
+    curve.push({
+      monthsSinceSignup: month,
+      retentionPercent: Math.round((retained / eligibleSubs.length) * 100),
+      customersRemaining: retained,
+      customersTotal: eligibleSubs.length,
+    })
+  }
+
+  return curve
+}
+
+function calculateChurnReasons(cancellations: StripeCancellation[]): ChurnReasonBreakdown[] {
+  const reasonCounts = new Map<string, { count: number; revenue: number }>()
+
+  for (const c of cancellations) {
+    const reason = c.reason || 'Not specified'
+    const existing = reasonCounts.get(reason) || { count: 0, revenue: 0 }
+    existing.count++
+    existing.revenue += c.monthlyValue
+    reasonCounts.set(reason, existing)
+  }
+
+  const totalCancellations = cancellations.length
+
+  return Array.from(reasonCounts.entries())
+    .map(([reason, data]) => ({
+      reason,
+      count: data.count,
+      revenueImpact: Math.round(data.revenue * 100) / 100,
+      percentOfChurn: totalCancellations > 0
+        ? Math.round((data.count / totalCancellations) * 100)
+        : 0,
+    }))
+    .sort((a, b) => b.count - a.count)
+}
+
+function calculateSegmentRetention(
+  subscriptions: StripeSubscription[],
+  cancellations: StripeCancellation[],
+  payments: StripePayment[]
+): CustomerSegmentRetention[] {
+  const segments: CustomerSegmentRetention[] = []
+
+  // Define segment categorization
+  const categorize = (sub: StripeSubscription): 'individual' | 'league' | 'beta_tester' | 'discounted' => {
+    if (sub.couponPercentOff === 100 || sub.couponId?.toLowerCase().includes('beta')) {
+      return 'beta_tester'
+    }
+    if (sub.couponId && sub.couponPercentOff && sub.couponPercentOff > 0 && sub.couponPercentOff < 100) {
+      return 'discounted'
+    }
+    return sub.planAmount >= 100 ? 'league' : 'individual'
+  }
+
+  // Group subscriptions by segment
+  const segmentSubs = new Map<string, StripeSubscription[]>()
+  for (const sub of subscriptions) {
+    const segment = categorize(sub)
+    if (!segmentSubs.has(segment)) segmentSubs.set(segment, [])
+    segmentSubs.get(segment)!.push(sub)
+  }
+
+  // Group payments by customer for LTV
+  const customerPayments = new Map<string, number>()
+  for (const p of payments.filter(p => p.status === 'succeeded')) {
+    customerPayments.set(p.customerId, (customerPayments.get(p.customerId) || 0) + p.amount)
+  }
+
+  // Calculate metrics for each segment
+  const segmentNames: Record<string, string> = {
+    individual: 'Individual Members',
+    league: 'League Coaches',
+    beta_tester: 'Beta Testers',
+    discounted: 'Discounted Customers',
+  }
+
+  for (const [segment, subs] of Array.from(segmentSubs.entries())) {
+    const activeSubs = subs.filter(s => s.status === 'active')
+    const canceledSubs = subs.filter(s => s.status === 'canceled')
+
+    // Get cancellations for this segment
+    const segmentCancels = cancellations.filter(c => {
+      const sub = subscriptions.find(s => s.id === c.subscriptionId)
+      return sub && categorize(sub) === segment
+    })
+
+    const retentionRate = subs.length > 0
+      ? (activeSubs.length / subs.length) * 100
+      : 0
+
+    const churnRate = 100 - retentionRate
+
+    const avgLifetimeDays = segmentCancels.length > 0
+      ? segmentCancels.reduce((sum, c) => sum + c.daysAsCustomer, 0) / segmentCancels.length
+      : 0
+
+    // Calculate average LTV for this segment
+    const segmentCustomerIds = new Set(subs.map(s => s.customerId))
+    const segmentLTVs = Array.from(segmentCustomerIds)
+      .map(id => customerPayments.get(id) || 0)
+    const avgLTV = segmentLTVs.length > 0
+      ? segmentLTVs.reduce((a, b) => a + b, 0) / segmentLTVs.length
+      : 0
+
+    segments.push({
+      segment: segment as 'individual' | 'league' | 'beta_tester' | 'discounted',
+      segmentName: segmentNames[segment] || segment,
+      count: subs.length,
+      retentionRate: Math.round(retentionRate * 10) / 10,
+      churnRate: Math.round(churnRate * 10) / 10,
+      avgLifetimeDays: Math.round(avgLifetimeDays),
+      avgLTV: Math.round(avgLTV * 100) / 100,
+    })
+  }
+
+  return segments.sort((a, b) => b.count - a.count)
+}

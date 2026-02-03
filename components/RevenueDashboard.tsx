@@ -20,7 +20,9 @@ import {
   CancellationAnalysis,
   StripeCoupon,
   StripeDataSyncResult,
+  RetentionAnalysis,
 } from '@/lib/stripe'
+import RetentionDashboard from '@/components/RetentionDashboard'
 
 interface RevenueDashboardProps {
   data: RealRevenueData
@@ -35,6 +37,7 @@ interface RevenueDashboardProps {
     hasData: boolean
     metrics?: StripeMetrics
     cancellationAnalysis?: CancellationAnalysis
+    retentionAnalysis?: RetentionAnalysis
     activeSubscriptions?: StripeSubscription[]
     canceledSubscriptions?: StripeSubscription[]
     pastDueSubscriptions?: StripeSubscription[]
@@ -47,7 +50,7 @@ interface RevenueDashboardProps {
   isRefreshing?: boolean
 }
 
-type ActiveTab = 'overview' | 'individuals' | 'leagues' | 'cancellations' | 'at-risk' | 'beta-testers' | 'export'
+type ActiveTab = 'overview' | 'retention' | 'individuals' | 'leagues' | 'cancellations' | 'at-risk' | 'beta-testers' | 'export'
 
 // Helper function to safely format dates that may be strings from JSON
 function safeFormatDate(date: Date | string | null | undefined): string {
@@ -147,6 +150,14 @@ export default function RevenueDashboard({
 
   const tabs: { id: ActiveTab; label: string; count?: number; alert?: boolean }[] = [
     { id: 'overview', label: 'Overview' },
+    ...(useStripeData ? [
+      {
+        id: 'retention' as ActiveTab,
+        label: 'Retention',
+        count: stripeData?.retentionAnalysis?.atRiskCustomers?.length || 0,
+        alert: (stripeData?.retentionAnalysis?.atRiskCustomers?.length || 0) > 0,
+      },
+    ] : []),
     { id: 'individuals', label: 'Individual Members', count: data.individualMembers.length },
     { id: 'leagues', label: 'League Coaches', count: data.leagueCoaches.length },
     ...(useStripeData ? [
@@ -277,6 +288,15 @@ export default function RevenueDashboard({
           growthData={data.growthData}
           currentSeason={currentSeason}
           nextSeasonDate={nextSeasonDate}
+        />
+      )}
+
+      {/* Retention Tab */}
+      {activeTab === 'retention' && (
+        <RetentionDashboard
+          retentionAnalysis={stripeData?.retentionAnalysis}
+          onRefresh={handleRefresh}
+          isRefreshing={isRefreshing}
         />
       )}
 
