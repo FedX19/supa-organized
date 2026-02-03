@@ -50,6 +50,7 @@ import {
   CancellationAnalysis,
   StripeCoupon,
   StripeDataSyncResult,
+  RetentionAnalysis,
 } from '@/lib/stripe'
 
 // Stripe data state type
@@ -57,6 +58,7 @@ interface StripeDataState {
   hasData: boolean
   metrics?: StripeMetrics
   cancellationAnalysis?: CancellationAnalysis
+  retentionAnalysis?: RetentionAnalysis
   activeSubscriptions?: StripeSubscription[]
   canceledSubscriptions?: StripeSubscription[]
   pastDueSubscriptions?: StripeSubscription[]

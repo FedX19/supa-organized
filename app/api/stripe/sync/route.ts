@@ -8,6 +8,8 @@ import {
   StripeCoupon,
   StripeMetrics,
   CancellationAnalysis,
+  calculateRetentionAnalysis,
+  RetentionAnalysis,
 } from '@/lib/stripe'
 
 // Create admin Supabase client for database operations
@@ -542,6 +544,13 @@ export async function POST(request: NextRequest) {
       result.cancellations || []
     )
 
+    // Calculate retention analysis
+    const retentionAnalysis = calculateRetentionAnalysis(
+      result.subscriptions || [],
+      result.payments || [],
+      result.cancellations || []
+    )
+
     return NextResponse.json({
       success: true,
       syncResult: {
@@ -552,6 +561,7 @@ export async function POST(request: NextRequest) {
       },
       metrics,
       cancellationAnalysis,
+      retentionAnalysis,
       lastSyncedAt: new Date().toISOString(),
       savedToDatabase: saved,
     })
@@ -626,11 +636,19 @@ export async function GET(request: NextRequest) {
       revenueImpact: couponUsage.get(coupon.id)?.impact || 0,
     })).filter(c => c.customerCount > 0)
 
+    // Calculate retention analysis
+    const retentionAnalysis = calculateRetentionAnalysis(
+      dbData.subscriptions,
+      dbData.payments,
+      dbData.cancellations
+    )
+
     return NextResponse.json({
       success: true,
       hasData: true,
       metrics,
       cancellationAnalysis,
+      retentionAnalysis,
       activeSubscriptions,
       canceledSubscriptions,
       pastDueSubscriptions,
