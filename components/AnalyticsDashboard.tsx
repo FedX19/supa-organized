@@ -267,14 +267,109 @@ function AdoptionTab({
   )
 }
 
+// Drilldown Modal Component
+function DrilldownModal({
+  isOpen,
+  onClose,
+  title,
+  users,
+  isLoading,
+}: {
+  isOpen: boolean
+  onClose: () => void
+  title: string
+  users: { profile_id: string; full_name: string; email: string | null; count: number }[]
+  isLoading: boolean
+}) {
+  if (!isOpen) return null
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center">
+      <div className="absolute inset-0 bg-black/50" onClick={onClose} />
+      <div className="relative bg-gray-900 border border-dark-border rounded-xl p-6 w-full max-w-lg max-h-[80vh] overflow-auto">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-lg font-semibold text-white">{title}</h3>
+          <button onClick={onClose} className="text-gray-400 hover:text-white">
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+        {isLoading ? (
+          <LoadingSpinner />
+        ) : users.length === 0 ? (
+          <p className="text-gray-400 text-sm">No users found</p>
+        ) : (
+          <table className="w-full">
+            <thead>
+              <tr className="border-b border-dark-border">
+                <th className="text-left text-xs text-gray-400 font-medium pb-2">Name</th>
+                <th className="text-left text-xs text-gray-400 font-medium pb-2">Email</th>
+                <th className="text-right text-xs text-gray-400 font-medium pb-2">Count</th>
+              </tr>
+            </thead>
+            <tbody>
+              {users.map((user) => (
+                <tr key={user.profile_id} className="border-b border-dark-border/50">
+                  <td className="py-2 text-white text-sm">{user.full_name}</td>
+                  <td className="py-2 text-gray-400 text-sm truncate max-w-[180px]">{user.email || '—'}</td>
+                  <td className="text-right text-primary text-sm font-medium">{user.count}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+    </div>
+  )
+}
+
 // Usage Tab Component
 function UsageTab({
   data,
   isLoading,
+  selectedOrgId,
+  range,
+  getValidAccessToken,
 }: {
   data: UsageData | null
   isLoading: boolean
+  selectedOrgId: string
+  range: RangeType
+  getValidAccessToken: () => Promise<string | null>
 }) {
+  const [drilldownOpen, setDrilldownOpen] = useState(false)
+  const [drilldownTitle, setDrilldownTitle] = useState('')
+  const [drilldownUsers, setDrilldownUsers] = useState<{ profile_id: string; full_name: string; email: string | null; count: number }[]>([])
+  const [drilldownLoading, setDrilldownLoading] = useState(false)
+
+  const handleDrilldown = useCallback(async (type: 'feature' | 'action', value: string) => {
+    setDrilldownOpen(true)
+    setDrilldownTitle(`Users who used "${value}"`)
+    setDrilldownLoading(true)
+    setDrilldownUsers([])
+
+    try {
+      const token = await getValidAccessToken()
+      if (!token) return
+
+      const metric = type === 'feature' ? 'drilldown_feature' : 'drilldown_action'
+      const param = type === 'feature' ? 'feature' : 'action'
+      const res = await fetch(
+        `/api/analytics/activity?org_id=${selectedOrgId}&range=${range}&metric=${metric}&${param}=${encodeURIComponent(value)}`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      )
+      if (res.ok) {
+        const data = await res.json()
+        setDrilldownUsers(data.top_users || [])
+      }
+    } catch (error) {
+      console.error('Drilldown fetch error:', error)
+    } finally {
+      setDrilldownLoading(false)
+    }
+  }, [selectedOrgId, range, getValidAccessToken])
+
   if (isLoading) return <LoadingSpinner />
   if (!data || !data.hasData) return <EmptyState message="No usage data available for this organization" />
 
@@ -327,31 +422,42 @@ function UsageTab({
         </div>
       </div>
 
+      {/* Drilldown Modal */}
+      <DrilldownModal
+        isOpen={drilldownOpen}
+        onClose={() => setDrilldownOpen(false)}
+        title={drilldownTitle}
+        users={drilldownUsers}
+        isLoading={drilldownLoading}
+      />
+
       {/* Feature and Role Breakdown */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Feature Breakdown */}
         <div className="bg-dark-card border border-dark-border rounded-xl p-5">
           <h3 className="text-lg font-semibold text-white mb-4">Feature Breakdown</h3>
-          <div className="h-64">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={featureBreakdown.slice(0, 8)} layout="vertical">
-                <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
-                <XAxis type="number" tick={{ fontSize: 11, fill: '#9ca3af' }} stroke="#4b5563" />
-                <YAxis
-                  type="category"
-                  dataKey="name"
-                  width={120}
-                  tick={{ fontSize: 11, fill: '#9ca3af' }}
-                  stroke="#4b5563"
-                />
-                <Tooltip
-                  contentStyle={{ backgroundColor: '#1f2937', border: '1px solid #374151', borderRadius: '8px' }}
-                  labelStyle={{ color: '#fff' }}
-                  itemStyle={{ color: '#fff' }}
-                />
-                <Bar dataKey="count" fill="#f59e0b" radius={[0, 4, 4, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
+          <p className="text-xs text-gray-500 mb-3">Click a feature to see which users used it</p>
+          <div className="space-y-2 max-h-64 overflow-y-auto">
+            {featureBreakdown.slice(0, 10).map((item) => (
+              <button
+                key={item.name}
+                onClick={() => handleDrilldown('feature', item.name)}
+                className="w-full flex items-center justify-between p-2 rounded-lg hover:bg-dark-border/50 transition-colors text-left"
+              >
+                <span className="text-sm text-white truncate max-w-[150px]">{item.name}</span>
+                <div className="flex items-center gap-2">
+                  <div className="h-2 bg-primary/30 rounded-full w-20">
+                    <div
+                      className="h-full bg-primary rounded-full"
+                      style={{
+                        width: `${Math.min(100, (item.count / Math.max(...featureBreakdown.map(f => f.count))) * 100)}%`,
+                      }}
+                    />
+                  </div>
+                  <span className="text-sm text-gray-400 w-10 text-right">{item.count}</span>
+                </div>
+              </button>
+            ))}
           </div>
         </div>
 
@@ -402,26 +508,28 @@ function UsageTab({
         {/* Action Breakdown */}
         <div className="bg-dark-card border border-dark-border rounded-xl p-5">
           <h3 className="text-lg font-semibold text-white mb-4">Action Breakdown</h3>
-          <div className="h-64">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={actionBreakdown.slice(0, 8)} layout="vertical">
-                <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
-                <XAxis type="number" tick={{ fontSize: 11, fill: '#9ca3af' }} stroke="#4b5563" />
-                <YAxis
-                  type="category"
-                  dataKey="name"
-                  width={120}
-                  tick={{ fontSize: 11, fill: '#9ca3af' }}
-                  stroke="#4b5563"
-                />
-                <Tooltip
-                  contentStyle={{ backgroundColor: '#1f2937', border: '1px solid #374151', borderRadius: '8px' }}
-                  labelStyle={{ color: '#fff' }}
-                  itemStyle={{ color: '#fff' }}
-                />
-                <Bar dataKey="count" fill="#22c55e" radius={[0, 4, 4, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
+          <p className="text-xs text-gray-500 mb-3">Click an action to see which users performed it</p>
+          <div className="space-y-2 max-h-64 overflow-y-auto">
+            {actionBreakdown.slice(0, 10).map((item) => (
+              <button
+                key={item.name}
+                onClick={() => handleDrilldown('action', item.name)}
+                className="w-full flex items-center justify-between p-2 rounded-lg hover:bg-dark-border/50 transition-colors text-left"
+              >
+                <span className="text-sm text-white truncate max-w-[150px]">{item.name}</span>
+                <div className="flex items-center gap-2">
+                  <div className="h-2 bg-green-500/30 rounded-full w-20">
+                    <div
+                      className="h-full bg-green-500 rounded-full"
+                      style={{
+                        width: `${Math.min(100, (item.count / Math.max(...actionBreakdown.map(a => a.count))) * 100)}%`,
+                      }}
+                    />
+                  </div>
+                  <span className="text-sm text-gray-400 w-10 text-right">{item.count}</span>
+                </div>
+              </button>
+            ))}
           </div>
         </div>
 
@@ -844,7 +952,13 @@ export default function AnalyticsDashboard({
           <AdoptionTab data={adoptionData} isLoading={isLoading} />
         )}
         {activeTab === 'usage' && (
-          <UsageTab data={usageData} isLoading={isLoading} />
+          <UsageTab
+            data={usageData}
+            isLoading={isLoading}
+            selectedOrgId={selectedOrgId}
+            range={range}
+            getValidAccessToken={getValidAccessToken}
+          />
         )}
         {activeTab === 'errors' && (
           <ErrorsTab data={errorsData} isLoading={isLoading} />
