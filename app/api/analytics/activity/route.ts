@@ -73,8 +73,16 @@ async function getCustomerClient(request: NextRequest) {
   }
   const token = authHeader.substring(7)
 
-  // Create Supabase client and verify the user
-  const supabase = createClient(supabaseUrl, supabaseAnonKey)
+  // Create Supabase client with auth token in headers for RLS
+  const supabase = createClient(supabaseUrl, supabaseAnonKey, {
+    global: {
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    },
+  })
+
+  // Verify the user
   const { data: { user }, error: authError } = await supabase.auth.getUser(token)
 
   if (authError || !user) {
