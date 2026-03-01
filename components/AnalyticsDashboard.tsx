@@ -60,6 +60,7 @@ const ROLE_COLORS: Record<string, string> = {
   parent: '#3b82f6',
   admin: '#10b981',
   staff: '#8b5cf6',
+  platform_admin: '#ef4444',
   unknown: '#6b7280',
 }
 
@@ -898,6 +899,8 @@ function RolesSection({
               </Pie>
               <Tooltip
                 contentStyle={{ backgroundColor: '#1f2937', border: '1px solid #374151', borderRadius: '8px' }}
+                itemStyle={{ color: '#fff' }}
+                labelStyle={{ color: '#fff' }}
               />
               <Legend />
             </PieChart>
