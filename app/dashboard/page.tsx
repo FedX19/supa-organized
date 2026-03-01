@@ -41,7 +41,6 @@ import ExportTools from '@/components/ExportTools'
 import AnalyticsDashboard from '@/components/AnalyticsDashboard'
 import ConnectionsPanel from '@/components/ConnectionsPanel'
 import RevenueDashboard from '@/components/RevenueDashboard'
-import ActivityLog from '@/components/ActivityLog'
 import {
   StripeMetrics,
   StripeSubscription,
@@ -69,7 +68,7 @@ interface StripeDataState {
   lastSyncedAt?: string | null
 }
 
-type SidebarView = 'dashboard' | 'analytics' | 'connections' | 'revenue' | 'activity'
+type SidebarView = 'dashboard' | 'analytics' | 'connections' | 'revenue'
 type Tab = 'organizations' | 'users' | 'issues' | 'relationships' | 'export'
 type OrgView = 'grid' | 'detail'
 type UserView = 'search' | 'profile' | 'diagnostic'
@@ -911,7 +910,6 @@ function DashboardContent() {
     if (sidebarView === 'analytics') return 'Analytics'
     if (sidebarView === 'connections') return 'Connections'
     if (sidebarView === 'revenue') return 'Revenue Dashboard'
-    if (sidebarView === 'activity') return 'Activity Log'
 
     // Dashboard view titles
     if (activeTab === 'organizations') {
@@ -969,15 +967,9 @@ function DashboardContent() {
         {sidebarView === 'analytics' && (
           connection ? (
             <AnalyticsDashboard
-              analyticsData={analyticsData}
-              rawData={rawData || { profiles: [], organizations: [], staff: [], members: [], players: [], teams: [] }}
-              dateRange={dateRange}
-              onDateRangeChange={setDateRange}
-              isLoading={analyticsLoading || dataLoading}
-              onFetchUserActivities={handleFetchUserActivities}
-              onRefreshData={handleRefreshActivityData}
-              isRefreshing={isRefreshing}
-              lastRefreshTime={lastRefreshTime}
+              connection={connection}
+              organizations={organizations}
+              getValidAccessToken={getValidAccessToken}
             />
           ) : (
             <div className="bg-dark-card border border-dark-border rounded-lg p-8 text-center">
@@ -1040,11 +1032,6 @@ function DashboardContent() {
               </a>
             </div>
           )
-        )}
-
-        {/* Activity Log View */}
-        {sidebarView === 'activity' && (
-          <ActivityLog />
         )}
 
         {/* Dashboard View */}

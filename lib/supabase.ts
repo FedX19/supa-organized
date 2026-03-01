@@ -1292,6 +1292,192 @@ export interface ActivityUserDrilldown {
   events: ActivityDrilldownEvent[]
 }
 
+// ========== ADOPTION API TYPES ==========
+
+export interface AdoptionMetrics {
+  activeUsers: {
+    current: number
+    prior: number
+    delta: number
+  }
+  evaluationsSubmitted: {
+    current: number
+    prior: number
+    delta: number
+    uniqueCoaches: number
+  }
+  plansGenerated: {
+    current: number
+    prior: number
+    delta: number
+  }
+  plansOpenedByParents: {
+    current: number
+    prior: number
+    delta: number
+    uniqueParents: number
+  }
+  openRate: {
+    current: number | null
+    prior: number | null
+    delta: number | null
+  }
+  medianTimeToOpen: {
+    current: number | null
+    unit: 'hours'
+  }
+}
+
+export interface AdoptionSparklineData {
+  date: string
+  active_users: number
+  evaluations: number
+  plans_generated: number
+  plans_opened: number
+}
+
+export interface AdoptionTopCoach {
+  profile_id: string
+  full_name: string
+  email: string
+  evaluations_submitted: number
+  plans_generated: number
+  last_active: string
+}
+
+export interface AdoptionTopParent {
+  profile_id: string
+  full_name: string
+  email: string
+  plans_opened: number
+  first_open: string
+  last_open: string
+}
+
+export interface AdoptionData {
+  success: boolean
+  hasData: boolean
+  range: '7d' | '30d'
+  metrics: AdoptionMetrics
+  sparkline: AdoptionSparklineData[]
+  topCoaches: AdoptionTopCoach[]
+  topParents: AdoptionTopParent[]
+}
+
+// ========== USAGE API TYPES ==========
+
+export interface UsageMetrics {
+  totalEvents: {
+    current: number
+    prior: number
+    delta: number
+  }
+  avgEventsPerDay: {
+    current: number
+    prior: number
+  }
+  uniqueUsersInPeriod: number
+}
+
+export interface UsageBreakdownItem {
+  name: string
+  count: number
+}
+
+export interface UsageDailyActivity {
+  date: string
+  events: number
+  uniqueUsers: number
+}
+
+export interface UsageHourlyDistribution {
+  hour: number
+  count: number
+}
+
+export interface UsageTopUser {
+  profile_id: string
+  full_name: string
+  email: string
+  event_count: number
+  last_active: string
+}
+
+export interface UsageData {
+  success: boolean
+  hasData: boolean
+  range: '7d' | '30d'
+  metrics: UsageMetrics
+  featureBreakdown: UsageBreakdownItem[]
+  actionBreakdown: UsageBreakdownItem[]
+  roleBreakdown: UsageBreakdownItem[]
+  dailyActivity: UsageDailyActivity[]
+  hourlyDistribution: UsageHourlyDistribution[]
+  topUsers: UsageTopUser[]
+}
+
+// ========== ERRORS API TYPES ==========
+
+export interface ErrorsMetrics {
+  totalErrors: {
+    current: number
+    prior: number
+    delta: number
+  }
+  errorRate: {
+    current: number
+    unit: '%'
+  }
+  uniqueUsersAffected: number
+}
+
+export interface ErrorsDailyCount {
+  date: string
+  count: number
+}
+
+export interface ErrorsCodeBreakdown {
+  code: string
+  count: number
+}
+
+export interface ErrorsRouteBreakdown {
+  route: string
+  count: number
+}
+
+export interface ErrorsTopUser {
+  profile_id: string
+  full_name: string
+  email: string
+  error_count: number
+}
+
+export interface ErrorsRecentError {
+  id: string
+  timestamp: string
+  profile_id: string
+  full_name: string
+  email: string
+  error_code: string
+  http_status: number | null
+  route: string
+  feature: string
+  source: string
+}
+
+export interface ErrorsData {
+  success: boolean
+  hasData: boolean
+  range: '7d' | '30d'
+  metrics: ErrorsMetrics
+  dailyErrorCounts: ErrorsDailyCount[]
+  errorCodeBreakdown: ErrorsCodeBreakdown[]
+  errorRouteBreakdown: ErrorsRouteBreakdown[]
+  topErrorUsers: ErrorsTopUser[]
+  recentErrors: ErrorsRecentError[]
+}
+
 // ========== ANALYTICS FUNCTIONS ==========
 
 // Fetch user activity data from customer database
