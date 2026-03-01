@@ -114,12 +114,51 @@ export default function AnalyticsDashboard({
   // Organizations from rawData
   const organizations = useMemo(() => rawData.organizations || [], [rawData.organizations])
 
-  // Set default org when organizations load
+  // Track if we've done initial org selection
+  const [initialOrgSelected, setInitialOrgSelected] = useState(false)
+
+  // Find org with most activity on initial load
   useEffect(() => {
-    if (organizations.length > 0 && !selectedOrgId) {
-      setSelectedOrgId(organizations[0].id)
+    if (organizations.length === 0 || initialOrgSelected) return
+
+    const findBestOrg = async () => {
+      const token = await getAccessToken()
+      if (!token) {
+        // Fallback to first org
+        setSelectedOrgId(organizations[0].id)
+        setInitialOrgSelected(true)
+        return
+      }
+
+      // Check each org's activity count (in parallel for speed)
+      const orgCounts = await Promise.all(
+        organizations.slice(0, 10).map(async (org) => {
+          try {
+            const response = await fetch(`/api/analytics/activity?org_id=${org.id}&metric=overview`, {
+              headers: { 'Authorization': `Bearer ${token}` },
+            })
+            if (response.ok) {
+              const data = await response.json()
+              return { orgId: org.id, events: (data.totalEvents7d || 0) + (data.totalEvents30d || 0) }
+            }
+          } catch {
+            // Ignore errors
+          }
+          return { orgId: org.id, events: 0 }
+        })
+      )
+
+      // Find org with most events
+      const bestOrg = orgCounts.reduce((best, current) =>
+        current.events > best.events ? current : best
+      , { orgId: organizations[0].id, events: 0 })
+
+      setSelectedOrgId(bestOrg.orgId)
+      setInitialOrgSelected(true)
     }
-  }, [organizations, selectedOrgId])
+
+    findBestOrg()
+  }, [organizations, initialOrgSelected])
 
   // API fetch helper
   const fetchMetric = useCallback(async (
@@ -763,7 +802,7 @@ function FeaturesSection({
             <BarChart data={chartData} layout="vertical">
               <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
               <XAxis type="number" stroke="#9ca3af" />
-              <YAxis type="category" dataKey="name" stroke="#9ca3af" width={100} />
+              <YAxis type="category" dataKey="name" stroke="#9ca3af" width={150} tick={{ fontSize: 12 }} />
               <Tooltip
                 contentStyle={{ backgroundColor: '#1f2937', border: '1px solid #374151', borderRadius: '8px' }}
               />
