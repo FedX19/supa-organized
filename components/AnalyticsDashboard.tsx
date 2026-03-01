@@ -802,7 +802,7 @@ function FeaturesSection({
             <BarChart data={chartData} layout="vertical">
               <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
               <XAxis type="number" stroke="#9ca3af" />
-              <YAxis type="category" dataKey="name" stroke="#9ca3af" width={150} tick={{ fontSize: 12 }} />
+              <YAxis type="category" dataKey="name" stroke="#9ca3af" width={120} tick={{ fontSize: 11 }} />
               <Tooltip
                 contentStyle={{ backgroundColor: '#1f2937', border: '1px solid #374151', borderRadius: '8px' }}
               />
@@ -879,13 +879,13 @@ function RolesSection({
       ) : (
         <>
           <ResponsiveContainer width="100%" height={200}>
-            <PieChart>
+            <PieChart margin={{ top: 10, right: 10, bottom: 10, left: 10 }}>
               <Pie
                 data={pieData}
                 cx="50%"
                 cy="50%"
-                innerRadius={50}
-                outerRadius={80}
+                innerRadius={40}
+                outerRadius={65}
                 paddingAngle={2}
                 dataKey="value"
               >
