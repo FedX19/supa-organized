@@ -1195,6 +1195,103 @@ export interface AnalyticsSummary {
 
 export type DateRange = '7d' | '30d' | '90d' | 'all'
 
+// ========== NEW ANALYTICS API TYPES ==========
+
+export interface ActivityOverview {
+  activeUsers7d: number
+  activeUsers30d: number
+  totalEvents7d: number
+  totalEvents30d: number
+  errors7d: number
+  errors30d: number
+  errorRate7d: string
+  errorRate30d: string
+  avgEventsPerUser7d: string
+  avgEventsPerUser30d: string
+}
+
+export interface ActivityFeatureUsage {
+  feature: string
+  event_count: number
+  unique_users: number
+  by_role: {
+    coach: number
+    parent: number
+    admin: number
+    staff: number
+    unknown: number
+  }
+}
+
+export interface ActivityActionUsage {
+  action: string
+  event_count: number
+  unique_users: number
+  error_count: number
+}
+
+export interface ActivityRoleUsage {
+  viewer_role: string
+  event_count: number
+  unique_users: number
+}
+
+export interface ActivityDailyData {
+  date: string
+  total_events: number
+  error_events: number
+  unique_users: number
+}
+
+export interface ActivityErrorSummary {
+  feature: string
+  error_code: string
+  count: number
+  unique_users: number
+  last_seen: string
+}
+
+export interface ActivityErrorDetail {
+  timestamp: string
+  profile_id: string
+  feature: string
+  action: string | null
+  error_code: string
+  http_status: number | null
+  route: string | null
+}
+
+export interface ActivityDrilldownUser {
+  profile_id: string
+  full_name: string
+  email: string | null
+  count: number
+}
+
+export interface ActivityDrilldownEvent {
+  timestamp: string
+  event_type: string
+  feature: string
+  action: string | null
+  viewer_role: string | null
+  route: string | null
+  error_code?: string | null
+}
+
+export interface ActivityDrilldownData {
+  top_users: ActivityDrilldownUser[]
+  recent_events: ActivityDrilldownEvent[]
+}
+
+export interface ActivityUserDrilldown {
+  profile: {
+    id: string
+    full_name: string
+    email: string | null
+  } | null
+  events: ActivityDrilldownEvent[]
+}
+
 // ========== ANALYTICS FUNCTIONS ==========
 
 // Fetch user activity data from customer database
