@@ -15,13 +15,14 @@ import {
   Tooltip,
   ResponsiveContainer,
 } from 'recharts'
-import {
-  Organization,
-  UserConnection,
-  AdoptionData,
-  UsageData,
-  ErrorsData,
-} from '@/lib/supabase'
+import { UserConnection } from '@/lib/supabase'
+
+/* eslint-disable @next/next/no-assign-module-variable */
+// Data types are intentionally loose since they come from API JSON responses
+interface MetricPair { current: number; prior?: number; delta?: number; [key: string]: unknown }
+interface AdoptionData { hasData: boolean; metrics: { logins?: MetricPair; activeUsers: MetricPair; evaluationsSubmitted: MetricPair & { uniqueCoaches: number }; plansGenerated: MetricPair; plansOpenedByParents: MetricPair & { uniqueParents: number }; openRate: { current: number | null; prior?: number | null; delta?: number | null }; medianTimeToOpen?: { medianHours: number | null; p75Hours: number | null; unit: string } }; sparkline: { date: string; logins: number; active_users: number; evaluations: number; plans_generated: number; plans_opened: number }[]; topCoaches: { profile_id: string; full_name: string; email: string; evaluations_submitted: number; plans_generated: number; last_active: string }[]; topParents: { profile_id: string; full_name: string; email: string; plans_opened: number; first_open: string; last_open: string }[] }
+interface UsageData { hasData: boolean; metrics: { logins?: MetricPair; activeUsers?: MetricPair; totalEvents?: MetricPair; totalFeatureEvents?: MetricPair; avgEventsPerDay: { current: number; prior: number }; uniqueUsersInPeriod?: number }; featureBreakdown: { name: string; count: number }[]; actionBreakdown: { name: string; count: number }[]; roleBreakdown: { name: string; count: number }[]; dailyActivity: { date: string; logins?: number; activeUsers?: number; events: number; uniqueUsers?: number }[]; hourlyDistribution: { hour: number; count: number }[]; topUsers: { profile_id: string; full_name: string; email: string; event_count: number; last_active: string }[] }
+interface ErrorsData { hasData?: boolean; metrics: { totalErrors: { current: number; prior: number; delta: number }; errorRate: { current: number; unit: string }; uniqueUsersAffected: number }; dailyErrorCounts: { date: string; count: number }[]; errorCodeBreakdown: { code: string; count: number }[]; errorRouteBreakdown: { route: string; count: number }[]; topErrorUsers: { profile_id: string; full_name: string; email: string; error_count: number }[]; recentErrors: { id: string; timestamp: string; profile_id: string; full_name: string; email: string; error_code: string; http_status: number | null; route: string; feature: string; source: string }[] }
 
 interface AnalyticsDashboardProps {
   connection: UserConnection
@@ -130,13 +131,21 @@ function AdoptionTab({
 
   return (
     <div className="space-y-6">
-      {/* Metrics Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4">
+      {/* Metrics Grid - Row 1: Logins + Active Users side by side */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+        <MetricCard
+          title="Logins"
+          current={metrics.logins?.current ?? 0}
+          prior={metrics.logins?.prior}
+          delta={metrics.logins?.delta}
+          subtitle="unique sessions started"
+        />
         <MetricCard
           title="Active Users"
           current={metrics.activeUsers.current}
           prior={metrics.activeUsers.prior}
           delta={metrics.activeUsers.delta}
+          subtitle="used at least one feature"
         />
         <MetricCard
           title="Evaluations Submitted"
@@ -151,6 +160,8 @@ function AdoptionTab({
           prior={metrics.plansGenerated.prior}
           delta={metrics.plansGenerated.delta}
         />
+      </div>
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         <MetricCard
           title="Plans Opened by Parents"
           current={metrics.plansOpenedByParents.current}
@@ -162,6 +173,15 @@ function AdoptionTab({
           title="Open Rate"
           current={metrics.openRate.current !== null ? `${metrics.openRate.current}%` : null}
           delta={metrics.openRate.delta}
+        />
+        <MetricCard
+          title="Time to Open"
+          current={metrics.medianTimeToOpen?.medianHours !== null && metrics.medianTimeToOpen?.medianHours !== undefined
+            ? `${metrics.medianTimeToOpen.medianHours}h`
+            : null}
+          subtitle={metrics.medianTimeToOpen?.p75Hours != null
+            ? `P75: ${metrics.medianTimeToOpen.p75Hours}h`
+            : undefined}
         />
       </div>
 
@@ -184,9 +204,10 @@ function AdoptionTab({
                 labelStyle={{ color: '#fff' }}
                 itemStyle={{ color: '#fff' }}
               />
+              <Area type="monotone" dataKey="logins" name="Logins" stroke="#3b82f6" fill="#3b82f6" fillOpacity={0.1} strokeDasharray="5 5" />
               <Area type="monotone" dataKey="active_users" name="Active Users" stroke="#f59e0b" fill="#f59e0b" fillOpacity={0.3} />
               <Area type="monotone" dataKey="evaluations" name="Evaluations" stroke="#22c55e" fill="#22c55e" fillOpacity={0.3} />
-              <Area type="monotone" dataKey="plans_generated" name="Plans Generated" stroke="#3b82f6" fill="#3b82f6" fillOpacity={0.3} />
+              <Area type="monotone" dataKey="plans_generated" name="Plans Generated" stroke="#8b5cf6" fill="#8b5cf6" fillOpacity={0.3} />
               <Area type="monotone" dataKey="plans_opened" name="Plans Opened" stroke="#8b5cf6" fill="#8b5cf6" fillOpacity={0.3} />
             </AreaChart>
           </ResponsiveContainer>
@@ -378,21 +399,31 @@ function UsageTab({
   return (
     <div className="space-y-6">
       {/* Metrics Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         <MetricCard
-          title="Total Events"
-          current={metrics.totalEvents.current}
-          prior={metrics.totalEvents.prior}
-          delta={metrics.totalEvents.delta}
+          title="Logins"
+          current={metrics.logins?.current ?? 0}
+          prior={metrics.logins?.prior}
+          delta={metrics.logins?.delta}
+          subtitle="unique sessions started"
+        />
+        <MetricCard
+          title="Active Users"
+          current={metrics.activeUsers?.current ?? 0}
+          prior={metrics.activeUsers?.prior}
+          delta={metrics.activeUsers?.delta}
+          subtitle="used at least one feature"
+        />
+        <MetricCard
+          title="Feature Events"
+          current={metrics.totalFeatureEvents?.current ?? metrics.totalEvents?.current ?? 0}
+          prior={metrics.totalFeatureEvents?.prior ?? metrics.totalEvents?.prior}
+          delta={metrics.totalFeatureEvents?.delta ?? metrics.totalEvents?.delta}
         />
         <MetricCard
           title="Avg Events/Day"
           current={metrics.avgEventsPerDay.current}
           prior={metrics.avgEventsPerDay.prior}
-        />
-        <MetricCard
-          title="Unique Users"
-          current={metrics.uniqueUsersInPeriod}
         />
       </div>
 
@@ -415,8 +446,8 @@ function UsageTab({
                 labelStyle={{ color: '#fff' }}
                 itemStyle={{ color: '#fff' }}
               />
-              <Area type="monotone" dataKey="events" name="Events" stroke="#f59e0b" fill="#f59e0b" fillOpacity={0.3} />
-              <Area type="monotone" dataKey="uniqueUsers" name="Unique Users" stroke="#3b82f6" fill="#3b82f6" fillOpacity={0.3} />
+              <Area type="monotone" dataKey="logins" name="Logins" stroke="#3b82f6" fill="#3b82f6" fillOpacity={0.1} strokeDasharray="5 5" />
+              <Area type="monotone" dataKey="activeUsers" name="Active Users" stroke="#f59e0b" fill="#f59e0b" fillOpacity={0.3} />
             </AreaChart>
           </ResponsiveContainer>
         </div>
@@ -800,6 +831,8 @@ export default function AnalyticsDashboard({
   const [adoptionData, setAdoptionData] = useState<AdoptionData | null>(null)
   const [usageData, setUsageData] = useState<UsageData | null>(null)
   const [errorsData, setErrorsData] = useState<ErrorsData | null>(null)
+  const [sendingReport, setSendingReport] = useState(false)
+  const [reportToast, setReportToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null)
 
   // Auto-select first org
   useEffect(() => {
@@ -852,6 +885,31 @@ export default function AnalyticsDashboard({
     fetchData()
   }, [fetchData])
 
+  async function handleSendReport() {
+    setSendingReport(true)
+    setReportToast(null)
+    try {
+      const token = await getValidAccessToken()
+      const res = await fetch('/api/email/weekly-report', {
+        method: 'POST',
+        headers: {
+          'x-cron-secret': process.env.NEXT_PUBLIC_CRON_SECRET ?? '',
+          'Authorization': `Bearer ${token}`,
+        },
+      })
+      if (!res.ok) throw new Error('Failed to send')
+      setReportToast({
+        type: 'success',
+        message: `Report sent to ${process.env.NEXT_PUBLIC_FOUNDER_EMAIL || 'founder'}`,
+      })
+    } catch {
+      setReportToast({ type: 'error', message: 'Failed to send report' })
+    } finally {
+      setSendingReport(false)
+      setTimeout(() => setReportToast(null), 4000)
+    }
+  }
+
   const tabs: { id: TabType; label: string }[] = [
     { id: 'adoption', label: 'Adoption' },
     { id: 'usage', label: 'Usage' },
@@ -901,27 +959,45 @@ export default function AnalyticsDashboard({
           </div>
         </div>
 
-        {/* Refresh button */}
-        <button
-          onClick={fetchData}
-          disabled={isLoading}
-          className="flex items-center gap-2 px-3 py-2 bg-dark-card border border-dark-border rounded-lg text-gray-400 hover:text-white hover:border-gray-500 transition-colors disabled:opacity-50"
-        >
-          <svg
-            className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`}
-            fill="none"
-            stroke="currentColor"
-            viewBox="0 0 24 24"
+        <div className="flex items-center gap-2">
+          {/* Send Report button */}
+          <button
+            onClick={handleSendReport}
+            disabled={sendingReport}
+            className="flex items-center gap-2 px-3 py-1.5 text-sm border border-dark-border text-gray-400 rounded-lg hover:text-white hover:border-gray-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={2}
-              d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
-            />
-          </svg>
-          Refresh
-        </button>
+            {sendingReport ? (
+              <span className="animate-spin">&#x27F3;</span>
+            ) : (
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+              </svg>
+            )}
+            Send Weekly Report
+          </button>
+
+          {/* Refresh button */}
+          <button
+            onClick={fetchData}
+            disabled={isLoading}
+            className="flex items-center gap-2 px-3 py-2 bg-dark-card border border-dark-border rounded-lg text-gray-400 hover:text-white hover:border-gray-500 transition-colors disabled:opacity-50"
+          >
+            <svg
+              className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`}
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+              />
+            </svg>
+            Refresh
+          </button>
+        </div>
       </div>
 
       {/* Tab Navigation */}
@@ -964,6 +1040,17 @@ export default function AnalyticsDashboard({
           <ErrorsTab data={errorsData} isLoading={isLoading} />
         )}
       </div>
+
+      {/* Report Toast */}
+      {reportToast && (
+        <div className={`fixed bottom-6 right-6 px-4 py-3 rounded-lg text-sm font-medium z-50 shadow-lg ${
+          reportToast.type === 'success'
+            ? 'bg-green-500/20 border border-green-500/40 text-green-400'
+            : 'bg-red-500/20 border border-red-500/40 text-red-400'
+        }`}>
+          {reportToast.message}
+        </div>
+      )}
     </div>
   )
 }

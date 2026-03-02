@@ -1,21 +1,19 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { decrypt } from '@/lib/encryption'
+import {
+  queryLogins,
+  queryActiveUsers,
+  queryFeatureBreakdown,
+  queryDailyBreakdown,
+} from '@/lib/analytics-queries'
 
 type RangeType = '7d' | '30d'
 
-interface DateRange {
-  from: Date
-  to: Date
-  priorFrom: Date
-  priorTo: Date
-}
-
-function getDateRanges(range: RangeType): DateRange {
+function getDateRanges(range: RangeType) {
   const now = new Date()
   const days = range === '30d' ? 30 : 7
   const ms = days * 24 * 60 * 60 * 1000
-
   return {
     from: new Date(now.getTime() - ms),
     to: now,
@@ -28,14 +26,10 @@ async function getCustomerClient(request: NextRequest) {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
   const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 
-  if (!supabaseUrl || !supabaseAnonKey) {
-    throw new Error('Server configuration error')
-  }
+  if (!supabaseUrl || !supabaseAnonKey) throw new Error('Server configuration error')
 
   const authHeader = request.headers.get('authorization')
-  if (!authHeader?.startsWith('Bearer ')) {
-    throw new Error('Missing authorization token')
-  }
+  if (!authHeader?.startsWith('Bearer ')) throw new Error('Missing authorization token')
   const token = authHeader.substring(7)
 
   const supabase = createClient(supabaseUrl, supabaseAnonKey, {
@@ -43,9 +37,7 @@ async function getCustomerClient(request: NextRequest) {
   })
 
   const { data: { user }, error: authError } = await supabase.auth.getUser(token)
-  if (authError || !user) {
-    throw new Error('Unauthorized')
-  }
+  if (authError || !user) throw new Error('Unauthorized')
 
   const { data: connection, error: connError } = await supabase
     .from('user_connections')
@@ -53,14 +45,10 @@ async function getCustomerClient(request: NextRequest) {
     .eq('user_id', user.id)
     .single()
 
-  if (connError || !connection) {
-    throw new Error('No connection found')
-  }
+  if (connError || !connection) throw new Error('No connection found')
 
   const decrypted = decrypt(connection.encrypted_key)
-  if (!decrypted) {
-    throw new Error('Failed to decrypt credentials')
-  }
+  if (!decrypted) throw new Error('Failed to decrypt credentials')
 
   return createClient(connection.supabase_url, decrypted)
 }
@@ -77,144 +65,82 @@ export async function GET(request: NextRequest) {
 
     const customerClient = await getCustomerClient(request)
     const { from, to, priorFrom, priorTo } = getDateRanges(range)
+    const fromISO = from.toISOString()
+    const toISO = to.toISOString()
+    const priorFromISO = priorFrom.toISOString()
+    const priorToISO = priorTo.toISOString()
 
-    // Run all queries in parallel
+    // Run all queries in parallel using shared helpers
     const [
-      totalEventsCurrent,
-      totalEventsPrior,
-      featureData,
-      actionData,
-      roleData,
-      dailyData,
+      loginsCurrent,
+      loginsPrior,
+      activeUsersCurrent,
+      activeUsersPrior,
+      featureBreakdown,
+      dailyActivity,
+      allEventsData,
       hourlyData,
       topUsersData,
     ] = await Promise.all([
-      // Total events current period
-      customerClient
-        .from('user_activity')
-        .select('id', { count: 'exact', head: true })
-        .eq('organization_id', orgId)
-        .gte('timestamp', from.toISOString())
-        .lte('timestamp', to.toISOString()),
-
-      // Total events prior period
-      customerClient
-        .from('user_activity')
-        .select('id', { count: 'exact', head: true })
-        .eq('organization_id', orgId)
-        .gte('timestamp', priorFrom.toISOString())
-        .lte('timestamp', priorTo.toISOString()),
-
-      // Feature breakdown
+      queryLogins(customerClient, orgId, fromISO, toISO),
+      queryLogins(customerClient, orgId, priorFromISO, priorToISO),
+      queryActiveUsers(customerClient, orgId, fromISO, toISO),
+      queryActiveUsers(customerClient, orgId, priorFromISO, priorToISO),
+      queryFeatureBreakdown(customerClient, orgId, fromISO, toISO),
+      queryDailyBreakdown(
+        customerClient,
+        orgId,
+        new Date(Date.now() - 14 * 24 * 60 * 60 * 1000).toISOString(),
+        new Date().toISOString()
+      ),
+      // Action + role breakdown (all events in period)
       customerClient
         .from('user_activity')
         .select('event_details')
         .eq('organization_id', orgId)
-        .gte('timestamp', from.toISOString())
-        .lte('timestamp', to.toISOString()),
-
-      // Action breakdown
-      customerClient
-        .from('user_activity')
-        .select('event_details')
-        .eq('organization_id', orgId)
-        .gte('timestamp', from.toISOString())
-        .lte('timestamp', to.toISOString()),
-
-      // Role breakdown
-      customerClient
-        .from('user_activity')
-        .select('event_details')
-        .eq('organization_id', orgId)
-        .gte('timestamp', from.toISOString())
-        .lte('timestamp', to.toISOString()),
-
-      // Daily activity (last 14 days for sparkline)
-      customerClient
-        .from('user_activity')
-        .select('timestamp, profile_id')
-        .eq('organization_id', orgId)
-        .gte('timestamp', new Date(Date.now() - 14 * 24 * 60 * 60 * 1000).toISOString()),
-
-      // Hourly distribution (current period)
+        .eq('event_type', 'feature_used')
+        .gte('timestamp', fromISO)
+        .lt('timestamp', toISO),
+      // Hourly distribution
       customerClient
         .from('user_activity')
         .select('timestamp')
         .eq('organization_id', orgId)
-        .gte('timestamp', from.toISOString())
-        .lte('timestamp', to.toISOString()),
-
+        .gte('timestamp', fromISO)
+        .lt('timestamp', toISO),
       // Top users by activity
       customerClient
         .from('user_activity')
         .select('profile_id, timestamp')
         .eq('organization_id', orgId)
-        .gte('timestamp', from.toISOString())
-        .lte('timestamp', to.toISOString()),
+        .eq('event_type', 'feature_used')
+        .gte('timestamp', fromISO)
+        .lt('timestamp', toISO),
     ])
 
-    // Process feature breakdown
+    // Process action breakdown from feature_used events
     type EventRow = { event_details: Record<string, unknown> | null }
-    const featureRows = featureData.data as EventRow[] || []
-    const featureMap = new Map<string, number>()
-    for (const row of featureRows) {
-      const feature = (row.event_details?.feature as string) || 'unknown'
-      featureMap.set(feature, (featureMap.get(feature) || 0) + 1)
-    }
-    const featureBreakdown = Array.from(featureMap.entries())
-      .map(([name, count]) => ({ name, count }))
-      .sort((a, b) => b.count - a.count)
-
-    // Process action breakdown
-    const actionRows = actionData.data as EventRow[] || []
+    const eventRows = allEventsData.data as EventRow[] || []
     const actionMap = new Map<string, number>()
-    for (const row of actionRows) {
+    const roleMap = new Map<string, number>()
+    for (const row of eventRows) {
       const action = (row.event_details?.action as string) || 'unknown'
       actionMap.set(action, (actionMap.get(action) || 0) + 1)
+      const role = (row.event_details?.viewer_role as string) || 'unknown'
+      roleMap.set(role, (roleMap.get(role) || 0) + 1)
     }
     const actionBreakdown = Array.from(actionMap.entries())
       .map(([name, count]) => ({ name, count }))
       .sort((a, b) => b.count - a.count)
-
-    // Process role breakdown
-    const roleRows = roleData.data as EventRow[] || []
-    const roleMap = new Map<string, number>()
-    for (const row of roleRows) {
-      const role = (row.event_details?.viewer_role as string) || 'unknown'
-      roleMap.set(role, (roleMap.get(role) || 0) + 1)
-    }
     const roleBreakdown = Array.from(roleMap.entries())
       .map(([name, count]) => ({ name, count }))
       .sort((a, b) => b.count - a.count)
-
-    // Process daily activity
-    type DailyRow = { timestamp: string; profile_id: string }
-    const dailyRows = dailyData.data as DailyRow[] || []
-    const dailyMap = new Map<string, { events: number; users: Set<string> }>()
-    for (const row of dailyRows) {
-      const date = new Date(row.timestamp).toISOString().split('T')[0]
-      if (!dailyMap.has(date)) {
-        dailyMap.set(date, { events: 0, users: new Set() })
-      }
-      const day = dailyMap.get(date)!
-      day.events++
-      day.users.add(row.profile_id)
-    }
-    const dailyActivity = Array.from(dailyMap.entries())
-      .map(([date, data]) => ({
-        date,
-        events: data.events,
-        uniqueUsers: data.users.size,
-      }))
-      .sort((a, b) => a.date.localeCompare(b.date))
 
     // Process hourly distribution
     type HourlyRow = { timestamp: string }
     const hourlyRows = hourlyData.data as HourlyRow[] || []
     const hourlyMap = new Map<number, number>()
-    for (let i = 0; i < 24; i++) {
-      hourlyMap.set(i, 0)
-    }
+    for (let i = 0; i < 24; i++) hourlyMap.set(i, 0)
     for (const row of hourlyRows) {
       const hour = new Date(row.timestamp).getHours()
       hourlyMap.set(hour, (hourlyMap.get(hour) || 0) + 1)
@@ -242,7 +168,7 @@ export async function GET(request: NextRequest) {
       .slice(0, 10)
       .map(([id]) => id)
 
-    // Fetch profiles for top users
+    // Fetch profiles
     type ProfileRow = { id: string; full_name: string | null; email: string | null }
     let profiles: ProfileRow[] = []
     if (topUserIds.length > 0) {
@@ -266,44 +192,56 @@ export async function GET(request: NextRequest) {
       }
     })
 
-    const totalCurrentCount = totalEventsCurrent.count || 0
-    const totalPriorCount = totalEventsPrior.count || 0
-    const hasData = totalCurrentCount > 0
+    const days = range === '30d' ? 30 : 7
+    const hasData = activeUsersCurrent.totalActivityEvents > 0
 
     return NextResponse.json({
       success: true,
       hasData,
       range,
       metrics: {
-        totalEvents: {
-          current: totalCurrentCount,
-          prior: totalPriorCount,
-          delta: totalCurrentCount - totalPriorCount,
+        logins: {
+          current: loginsCurrent.uniqueLogins,
+          prior: loginsPrior.uniqueLogins,
+          delta: loginsCurrent.uniqueLogins - loginsPrior.uniqueLogins,
+        },
+        activeUsers: {
+          current: activeUsersCurrent.uniqueActiveUsers,
+          prior: activeUsersPrior.uniqueActiveUsers,
+          delta: activeUsersCurrent.uniqueActiveUsers - activeUsersPrior.uniqueActiveUsers,
+        },
+        totalFeatureEvents: {
+          current: activeUsersCurrent.totalActivityEvents,
+          prior: activeUsersPrior.totalActivityEvents,
+          delta: activeUsersCurrent.totalActivityEvents - activeUsersPrior.totalActivityEvents,
         },
         avgEventsPerDay: {
-          current: Math.round(totalCurrentCount / (range === '30d' ? 30 : 7)),
-          prior: Math.round(totalPriorCount / (range === '30d' ? 30 : 7)),
+          current: Math.round(activeUsersCurrent.totalActivityEvents / days),
+          prior: Math.round(activeUsersPrior.totalActivityEvents / days),
         },
-        uniqueUsersInPeriod: new Set(userRows.map(r => r.profile_id)).size,
       },
-      featureBreakdown,
+      loginsByRole: loginsCurrent.byRole,
+      featureBreakdown: featureBreakdown.map(f => ({ name: f.feature, count: f.event_count })),
       actionBreakdown,
       roleBreakdown,
-      dailyActivity,
+      dailyActivity: dailyActivity.map(d => ({
+        date: d.date,
+        logins: d.logins,
+        activeUsers: d.active_users,
+        events: d.feature_events,
+      })),
       hourlyDistribution,
       topUsers,
     })
   } catch (error) {
     console.error('Usage API error:', error)
     const message = error instanceof Error ? error.message : 'Internal server error'
-
     if (message === 'Unauthorized' || message === 'Missing authorization token') {
       return NextResponse.json({ error: message }, { status: 401 })
     }
     if (message === 'No connection found') {
       return NextResponse.json({ error: message }, { status: 404 })
     }
-
     return NextResponse.json({ error: message }, { status: 500 })
   }
 }
