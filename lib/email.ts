@@ -9,7 +9,7 @@ export async function sendWeeklyReport(html: string, subject: string) {
 
   const resend = new Resend(process.env.RESEND_API_KEY)
   const { error } = await resend.emails.send({
-    from: `SupaOrganized <reports@${process.env.RESEND_DOMAIN ?? 'resend.dev'}>`,
+    from: 'SupaOrganized <no-reply@unite-hq.com>',
     to: process.env.FOUNDER_EMAIL!,
     subject,
     html,
