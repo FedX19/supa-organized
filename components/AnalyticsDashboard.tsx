@@ -34,12 +34,11 @@ type TabType = 'adoption' | 'usage' | 'errors'
 type RangeType = '7d' | '30d'
 
 const ROLE_COLORS: Record<string, string> = {
-  coach: '#22c55e',
-  parent: '#3b82f6',
-  admin: '#f59e0b',
-  staff: '#8b5cf6',
-  platform_admin: '#ef4444',
-  unknown: '#6b7280',
+  platform_admin: '#ef4444', // red
+  admin: '#8b5cf6',          // purple
+  coach: '#f59e0b',          // amber
+  parent: '#3b82f6',         // blue
+  unknown: '#64748b',        // slate
 }
 
 const FEATURE_COLORS = [
@@ -68,18 +67,31 @@ function MetricCard({
   prior,
   delta,
   subtitle,
+  onClick,
+  isActive,
 }: {
   title: string
   current: number | string | null
   prior?: number | null
   delta?: number | null
   subtitle?: string
+  onClick?: () => void
+  isActive?: boolean
 }) {
   const displayValue = current === null ? '—' : current
   const showDelta = delta !== undefined && delta !== null
+  const clickable = !!onClick
 
   return (
-    <div className="bg-dark-card border border-dark-border rounded-xl p-5">
+    <div
+      className={`bg-dark-card border rounded-xl p-5 ${
+        isActive ? 'border-primary ring-1 ring-primary' : 'border-dark-border'
+      } ${clickable ? 'cursor-pointer hover:border-primary/50 transition-colors' : ''}`}
+      onClick={onClick}
+      role={clickable ? 'button' : undefined}
+      tabIndex={clickable ? 0 : undefined}
+      onKeyDown={clickable ? (e) => e.key === 'Enter' && onClick?.() : undefined}
+    >
       <h3 className="text-sm text-gray-400 mb-2">{title}</h3>
       <div className="flex items-baseline gap-3">
         <span className="text-3xl font-bold text-white">{displayValue}</span>
@@ -93,6 +105,7 @@ function MetricCard({
       {prior !== undefined && prior !== null && (
         <p className="text-xs text-gray-500 mt-1">Prior period: {prior}</p>
       )}
+      {clickable && <p className="text-xs text-primary mt-2">Click for details</p>}
     </div>
   )
 }
@@ -364,6 +377,43 @@ function UsageTab({
   const [drilldownUsers, setDrilldownUsers] = useState<{ profile_id: string; full_name: string; email: string | null; count: number }[]>([])
   const [drilldownLoading, setDrilldownLoading] = useState(false)
 
+  // Card drilldown state
+  type CardMetric = 'logins' | 'active_users' | 'feature_events' | null
+  const [activeCard, setActiveCard] = useState<CardMetric>(null)
+  const [cardDrilldownUsers, setCardDrilldownUsers] = useState<{ profile_id: string; full_name: string; email: string; event_count: number; last_active: string }[]>([])
+  const [cardDrilldownLoading, setCardDrilldownLoading] = useState(false)
+
+  const handleCardClick = useCallback(async (metric: 'logins' | 'active_users' | 'feature_events') => {
+    // Toggle if clicking same card
+    if (activeCard === metric) {
+      setActiveCard(null)
+      setCardDrilldownUsers([])
+      return
+    }
+
+    setActiveCard(metric)
+    setCardDrilldownLoading(true)
+    setCardDrilldownUsers([])
+
+    try {
+      const token = await getValidAccessToken()
+      if (!token) return
+
+      const res = await fetch(
+        `/api/analytics/usage/drilldown?org_id=${selectedOrgId}&range=${range}&metric=${metric}`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      )
+      if (res.ok) {
+        const data = await res.json()
+        setCardDrilldownUsers(data.users || [])
+      }
+    } catch (error) {
+      console.error('Card drilldown fetch error:', error)
+    } finally {
+      setCardDrilldownLoading(false)
+    }
+  }, [activeCard, selectedOrgId, range, getValidAccessToken])
+
   const handleDrilldown = useCallback(async (type: 'feature' | 'action', value: string) => {
     setDrilldownOpen(true)
     setDrilldownTitle(`Users who used "${value}"`)
@@ -406,6 +456,8 @@ function UsageTab({
           prior={metrics.logins?.prior}
           delta={metrics.logins?.delta}
           subtitle="unique sessions started"
+          onClick={() => handleCardClick('logins')}
+          isActive={activeCard === 'logins'}
         />
         <MetricCard
           title="Active Users"
@@ -413,12 +465,16 @@ function UsageTab({
           prior={metrics.activeUsers?.prior}
           delta={metrics.activeUsers?.delta}
           subtitle="used at least one feature"
+          onClick={() => handleCardClick('active_users')}
+          isActive={activeCard === 'active_users'}
         />
         <MetricCard
           title="Feature Events"
           current={metrics.totalFeatureEvents?.current ?? metrics.totalEvents?.current ?? 0}
           prior={metrics.totalFeatureEvents?.prior ?? metrics.totalEvents?.prior}
           delta={metrics.totalFeatureEvents?.delta ?? metrics.totalEvents?.delta}
+          onClick={() => handleCardClick('feature_events')}
+          isActive={activeCard === 'feature_events'}
         />
         <MetricCard
           title="Avg Events/Day"
@@ -426,6 +482,57 @@ function UsageTab({
           prior={metrics.avgEventsPerDay.prior}
         />
       </div>
+
+      {/* Card Drilldown Panel */}
+      {activeCard && (
+        <div className="bg-dark-card border border-dark-border rounded-xl p-5">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-lg font-semibold text-white">
+              {activeCard === 'logins' && 'Users Who Logged In'}
+              {activeCard === 'active_users' && 'Active Users'}
+              {activeCard === 'feature_events' && 'Users by Feature Events'}
+            </h3>
+            <button
+              onClick={() => { setActiveCard(null); setCardDrilldownUsers([]) }}
+              className="text-gray-400 hover:text-white text-sm"
+            >
+              Close
+            </button>
+          </div>
+          {cardDrilldownLoading ? (
+            <div className="flex items-center justify-center py-8">
+              <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-primary"></div>
+            </div>
+          ) : cardDrilldownUsers.length === 0 ? (
+            <p className="text-gray-400 text-sm py-4">No users found</p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-dark-border">
+                    <th className="text-left text-gray-400 font-medium pb-2">User</th>
+                    <th className="text-left text-gray-400 font-medium pb-2">Email</th>
+                    <th className="text-right text-gray-400 font-medium pb-2">Events</th>
+                    <th className="text-right text-gray-400 font-medium pb-2">Last Active</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {cardDrilldownUsers.map((user) => (
+                    <tr key={user.profile_id} className="border-b border-dark-border/50">
+                      <td className="py-2 text-white">{user.full_name}</td>
+                      <td className="py-2 text-gray-400">{user.email || '—'}</td>
+                      <td className="py-2 text-right text-primary font-medium">{user.event_count}</td>
+                      <td className="py-2 text-right text-gray-400">
+                        {new Date(user.last_active).toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Daily Activity Chart */}
       <div className="bg-dark-card border border-dark-border rounded-xl p-5">

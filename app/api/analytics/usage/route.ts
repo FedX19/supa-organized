@@ -6,6 +6,7 @@ import {
   queryActiveUsers,
   queryFeatureBreakdown,
   queryDailyBreakdown,
+  normalizeRole,
 } from '@/lib/analytics-queries'
 
 type RangeType = '7d' | '30d'
@@ -126,7 +127,9 @@ export async function GET(request: NextRequest) {
     for (const row of eventRows) {
       const action = (row.event_details?.action as string) || 'unknown'
       actionMap.set(action, (actionMap.get(action) || 0) + 1)
-      const role = (row.event_details?.viewer_role as string) || 'unknown'
+      // Normalize roles to 5-value set (platform_admin, admin, coach, parent, unknown)
+      const rawRole = row.event_details?.viewer_role as string | undefined
+      const role = normalizeRole(rawRole)
       roleMap.set(role, (roleMap.get(role) || 0) + 1)
     }
     const actionBreakdown = Array.from(actionMap.entries())

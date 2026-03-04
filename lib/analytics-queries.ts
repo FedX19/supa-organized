@@ -4,6 +4,25 @@ import { SupabaseClient } from '@supabase/supabase-js'
 type AnyClient = { from: SupabaseClient['from'] }
 
 // ═══════════════════════════════════════════
+// ROLE NORMALIZATION
+// ═══════════════════════════════════════════
+// Normalize viewer_role values to a consistent 5-value set
+export type NormalizedRole = 'platform_admin' | 'admin' | 'coach' | 'parent' | 'unknown'
+
+export function normalizeRole(raw: string | null | undefined): NormalizedRole {
+  if (!raw) return 'unknown'
+  const r = raw.toLowerCase().trim()
+  // Collapse staff into coach
+  if (r === 'staff' || r === 'coach') return 'coach'
+  if (r === 'parent') return 'parent'
+  if (r === 'admin') return 'admin'
+  if (r === 'platform_admin') return 'platform_admin'
+  return 'unknown'
+}
+
+export const NORMALIZED_ROLES: NormalizedRole[] = ['platform_admin', 'admin', 'coach', 'parent', 'unknown']
+
+// ═══════════════════════════════════════════
 // METRIC A: Logins
 // ═══════════════════════════════════════════
 // "How many users came back this week"
@@ -12,7 +31,7 @@ type AnyClient = { from: SupabaseClient['from'] }
 export interface LoginResult {
   uniqueLogins: number
   totalLoginEvents: number
-  byRole: { coach: number; parent: number; admin: number; staff: number; unknown: number }
+  byRole: { platform_admin: number; admin: number; coach: number; parent: number; unknown: number }
 }
 
 export async function queryLogins(
@@ -30,21 +49,18 @@ export async function queryLogins(
     .contains('event_details', { feature: 'auth', action: 'login' })
 
   if (error || !data) {
-    return { uniqueLogins: 0, totalLoginEvents: 0, byRole: { coach: 0, parent: 0, admin: 0, staff: 0, unknown: 0 } }
+    return { uniqueLogins: 0, totalLoginEvents: 0, byRole: { platform_admin: 0, admin: 0, coach: 0, parent: 0, unknown: 0 } }
   }
 
   type Row = { profile_id: string; event_details: Record<string, unknown> | null }
   const rows = data as Row[]
   const uniqueIds = new Set(rows.map(r => r.profile_id))
-  const byRole = { coach: 0, parent: 0, admin: 0, staff: 0, unknown: 0 }
+  const byRole = { platform_admin: 0, admin: 0, coach: 0, parent: 0, unknown: 0 }
 
   for (const row of rows) {
-    const role = (row.event_details?.viewer_role as string) || 'unknown'
-    if (role in byRole) {
-      byRole[role as keyof typeof byRole]++
-    } else {
-      byRole.unknown++
-    }
+    const rawRole = row.event_details?.viewer_role as string | undefined
+    const role = normalizeRole(rawRole)
+    byRole[role]++
   }
 
   return {

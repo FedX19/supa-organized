@@ -5,7 +5,7 @@ export type OrgWeeklyStats = {
   logins: {
     current: number
     prior: number
-    byRole: { coach: number; parent: number; admin: number; staff: number; unknown: number }
+    byRole: { platform_admin: number; admin: number; coach: number; parent: number; unknown: number }
   }
   activeUsers: {
     current: number

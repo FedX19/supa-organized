@@ -169,7 +169,7 @@ async function processOrg(
       orgId: org.id,
       orgName: org.name,
       orgType: org.org_type || 'unknown',
-      logins: { current: 0, prior: 0, byRole: { coach: 0, parent: 0, admin: 0, staff: 0, unknown: 0 } },
+      logins: { current: 0, prior: 0, byRole: { platform_admin: 0, admin: 0, coach: 0, parent: 0, unknown: 0 } },
       activeUsers: { current: 0, prior: 0 },
       activityEvents: 0,
       funnel: {
