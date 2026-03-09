@@ -156,10 +156,10 @@ function PlanStatusTable({
   }
 
   return (
-    <div className="bg-dark-card border border-dark-border rounded-xl p-5">
+    <div className="bg-dark-card border border-dark-border rounded-xl p-5 overflow-hidden">
       <h3 className="text-lg font-semibold text-white mb-4">Plan-by-Plan Status</h3>
-      <div className="overflow-x-auto">
-        <table className="w-full text-sm">
+      <div className="overflow-x-auto -mx-5 px-5">
+        <table className="w-full text-sm min-w-[600px]">
           <thead>
             <tr className="border-b border-dark-border">
               <th className="text-left text-gray-400 font-medium pb-2">Plan</th>
@@ -190,13 +190,13 @@ function PlanStatusTable({
                     className={`border-b border-dark-border/50 cursor-pointer hover:bg-dark-border/30 ${rowClass}`}
                     onClick={() => onToggleExpand(plan.plan_id)}
                   >
-                    <td className="py-2 text-white" title={plan.plan_id}>
+                    <td className="py-2 text-white whitespace-nowrap" title={plan.plan_id}>
                       {truncateId(plan.plan_id)}
                     </td>
-                    <td className="py-2 text-gray-400" title={plan.guardian_profile_id}>
+                    <td className="py-2 text-gray-400 whitespace-nowrap max-w-[120px] truncate" title={plan.guardian_profile_id}>
                       {plan.guardian_name || truncateId(plan.guardian_profile_id)}
                     </td>
-                    <td className="py-2 text-gray-400">{relativeTime(plan.created_at)}</td>
+                    <td className="py-2 text-gray-400 whitespace-nowrap">{relativeTime(plan.created_at)}</td>
                     <td className="py-2 text-center">{plan.steps.notified ? '✅' : '○'}</td>
                     <td className="py-2 text-center">{plan.steps.emailed ? '✅' : '○'}</td>
                     <td className="py-2 text-center">{plan.steps.delivered ? '✅' : '○'}</td>
@@ -330,37 +330,11 @@ export default function PlanFunnelDashboard({
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 overflow-hidden">
       {/* Toolbar */}
-      <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between">
-        <h2 className="text-xl font-semibold text-white">Plan Funnel</h2>
-        <div className="flex items-center gap-4">
-          <select
-            value={selectedOrgId}
-            onChange={(e) => setSelectedOrgId(e.target.value)}
-            className="bg-dark-card border border-dark-border rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:ring-2 focus:ring-primary"
-          >
-            {organizations.map((org) => (
-              <option key={org.id} value={org.id}>
-                {org.name}
-              </option>
-            ))}
-          </select>
-          <div className="flex rounded-lg border border-dark-border overflow-hidden">
-            {(['7d', '30d', 'all'] as RangeType[]).map((r) => (
-              <button
-                key={r}
-                onClick={() => setRange(r)}
-                className={`px-3 py-2 text-sm transition-colors ${
-                  range === r
-                    ? 'bg-primary text-black font-medium'
-                    : 'bg-dark-card text-gray-400 hover:text-white'
-                }`}
-              >
-                {r === 'all' ? 'All Time' : r}
-              </button>
-            ))}
-          </div>
+      <div className="flex flex-col gap-4">
+        <div className="flex items-center justify-between">
+          <h2 className="text-xl font-semibold text-white">Plan Funnel</h2>
           <button
             onClick={fetchData}
             disabled={isLoading}
@@ -380,6 +354,34 @@ export default function PlanFunnelDashboard({
               />
             </svg>
           </button>
+        </div>
+        <div className="flex flex-wrap items-center gap-3">
+          <select
+            value={selectedOrgId}
+            onChange={(e) => setSelectedOrgId(e.target.value)}
+            className="flex-1 min-w-0 bg-dark-card border border-dark-border rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+          >
+            {organizations.map((org) => (
+              <option key={org.id} value={org.id}>
+                {org.name}
+              </option>
+            ))}
+          </select>
+          <div className="flex rounded-lg border border-dark-border overflow-hidden shrink-0">
+            {(['7d', '30d', 'all'] as RangeType[]).map((r) => (
+              <button
+                key={r}
+                onClick={() => setRange(r)}
+                className={`px-3 py-2 text-sm transition-colors ${
+                  range === r
+                    ? 'bg-primary text-black font-medium'
+                    : 'bg-dark-card text-gray-400 hover:text-white'
+                }`}
+              >
+                {r === 'all' ? 'All' : r}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 
@@ -426,12 +428,14 @@ export default function PlanFunnelDashboard({
           </div>
 
           {/* Funnel Visualization */}
-          <div className="bg-dark-card border border-dark-border rounded-xl p-5">
+          <div className="bg-dark-card border border-dark-border rounded-xl p-5 overflow-hidden">
             <h3 className="text-lg font-semibold text-white mb-4">Notification Funnel</h3>
-            <div className="flex flex-wrap justify-center gap-4">
-              {data.funnel.map((step, i) => (
-                <FunnelStepCard key={step.step} step={step} isLast={i === data.funnel.length - 1} />
-              ))}
+            <div className="overflow-x-auto -mx-5 px-5 pb-2">
+              <div className="flex gap-4 min-w-max">
+                {data.funnel.map((step, i) => (
+                  <FunnelStepCard key={step.step} step={step} isLast={i === data.funnel.length - 1} />
+                ))}
+              </div>
             </div>
           </div>
 
@@ -446,51 +450,55 @@ export default function PlanFunnelDashboard({
           <div className="space-y-4">
             {data.drilldown.failedEmails.length > 0 && (
               <DrilldownPanel title={`Failed Emails (${data.drilldown.failedEmails.length})`} color="red" defaultOpen>
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b border-dark-border">
-                      <th className="text-left text-gray-400 pb-2">Profile ID</th>
-                      <th className="text-left text-gray-400 pb-2">Error</th>
-                      <th className="text-left text-gray-400 pb-2">Created</th>
-                      <th className="text-right text-gray-400 pb-2">Attempts</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {data.drilldown.failedEmails.map((e) => (
-                      <tr key={e.outbox_id} className="border-b border-dark-border/50">
-                        <td className="py-2 text-gray-300" title={e.profile_id}>{truncateId(e.profile_id)}</td>
-                        <td className="py-2 text-red-400 font-mono text-xs">{e.last_error || '—'}</td>
-                        <td className="py-2 text-gray-400">{relativeTime(e.created_at)}</td>
-                        <td className="py-2 text-right text-gray-400">{e.attempts}</td>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm min-w-[400px]">
+                    <thead>
+                      <tr className="border-b border-dark-border">
+                        <th className="text-left text-gray-400 pb-2">Profile ID</th>
+                        <th className="text-left text-gray-400 pb-2">Error</th>
+                        <th className="text-left text-gray-400 pb-2">Created</th>
+                        <th className="text-right text-gray-400 pb-2">Attempts</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody>
+                      {data.drilldown.failedEmails.map((e) => (
+                        <tr key={e.outbox_id} className="border-b border-dark-border/50">
+                          <td className="py-2 text-gray-300" title={e.profile_id}>{truncateId(e.profile_id)}</td>
+                          <td className="py-2 text-red-400 font-mono text-xs max-w-[150px] truncate">{e.last_error || '—'}</td>
+                          <td className="py-2 text-gray-400 whitespace-nowrap">{relativeTime(e.created_at)}</td>
+                          <td className="py-2 text-right text-gray-400">{e.attempts}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               </DrilldownPanel>
             )}
 
             {data.drilldown.unreadNotifications.length > 0 && (
               <DrilldownPanel title={`Unread Notifications (${data.drilldown.unreadNotifications.length})`} color="amber">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b border-dark-border">
-                      <th className="text-left text-gray-400 pb-2">Profile ID</th>
-                      <th className="text-left text-gray-400 pb-2">Notified At</th>
-                      <th className="text-right text-gray-400 pb-2">Days Unread</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {data.drilldown.unreadNotifications.map((n) => (
-                      <tr key={n.notification_id} className="border-b border-dark-border/50">
-                        <td className="py-2 text-gray-300" title={n.profile_id}>{truncateId(n.profile_id)}</td>
-                        <td className="py-2 text-gray-400">{relativeTime(n.created_at)}</td>
-                        <td className={`py-2 text-right ${n.days_unread > 7 ? 'text-red-400' : 'text-gray-400'}`}>
-                          {n.days_unread}
-                        </td>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm min-w-[300px]">
+                    <thead>
+                      <tr className="border-b border-dark-border">
+                        <th className="text-left text-gray-400 pb-2">Profile ID</th>
+                        <th className="text-left text-gray-400 pb-2">Notified At</th>
+                        <th className="text-right text-gray-400 pb-2">Days Unread</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody>
+                      {data.drilldown.unreadNotifications.map((n) => (
+                        <tr key={n.notification_id} className="border-b border-dark-border/50">
+                          <td className="py-2 text-gray-300" title={n.profile_id}>{truncateId(n.profile_id)}</td>
+                          <td className="py-2 text-gray-400 whitespace-nowrap">{relativeTime(n.created_at)}</td>
+                          <td className={`py-2 text-right ${n.days_unread > 7 ? 'text-red-400' : 'text-gray-400'}`}>
+                            {n.days_unread}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               </DrilldownPanel>
             )}
 
@@ -499,26 +507,28 @@ export default function PlanFunnelDashboard({
                 <p className="text-xs text-gray-500 mb-3">
                   Parents who received notification/email but never opened the plan
                 </p>
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b border-dark-border">
-                      <th className="text-left text-gray-400 pb-2">Plan ID</th>
-                      <th className="text-left text-gray-400 pb-2">Player ID</th>
-                      <th className="text-left text-gray-400 pb-2">Created</th>
-                      <th className="text-right text-gray-400 pb-2">Days</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {data.drilldown.neverViewedPlans.map((p) => (
-                      <tr key={p.plan_id} className="border-b border-dark-border/50">
-                        <td className="py-2 text-gray-300" title={p.plan_id}>{truncateId(p.plan_id)}</td>
-                        <td className="py-2 text-gray-400" title={p.player_id}>{truncateId(p.player_id)}</td>
-                        <td className="py-2 text-gray-400">{relativeTime(p.created_at)}</td>
-                        <td className="py-2 text-right text-gray-400">{p.days_since_created}</td>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm min-w-[350px]">
+                    <thead>
+                      <tr className="border-b border-dark-border">
+                        <th className="text-left text-gray-400 pb-2">Plan ID</th>
+                        <th className="text-left text-gray-400 pb-2">Player ID</th>
+                        <th className="text-left text-gray-400 pb-2">Created</th>
+                        <th className="text-right text-gray-400 pb-2">Days</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody>
+                      {data.drilldown.neverViewedPlans.map((p) => (
+                        <tr key={p.plan_id} className="border-b border-dark-border/50">
+                          <td className="py-2 text-gray-300" title={p.plan_id}>{truncateId(p.plan_id)}</td>
+                          <td className="py-2 text-gray-400" title={p.player_id}>{truncateId(p.player_id)}</td>
+                          <td className="py-2 text-gray-400 whitespace-nowrap">{relativeTime(p.created_at)}</td>
+                          <td className="py-2 text-right text-gray-400">{p.days_since_created}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               </DrilldownPanel>
             )}
           </div>
