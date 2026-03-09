@@ -163,7 +163,7 @@ function PlanStatusTable({
           <thead>
             <tr className="border-b border-dark-border">
               <th className="text-left text-gray-400 font-medium pb-2">Plan</th>
-              <th className="text-left text-gray-400 font-medium pb-2">Player</th>
+              <th className="text-left text-gray-400 font-medium pb-2">Guardian</th>
               <th
                 className="text-left text-gray-400 font-medium pb-2 cursor-pointer hover:text-white"
                 onClick={() => handleSort('created_at')}
@@ -193,8 +193,8 @@ function PlanStatusTable({
                     <td className="py-2 text-white" title={plan.plan_id}>
                       {truncateId(plan.plan_id)}
                     </td>
-                    <td className="py-2 text-gray-400" title={plan.player_id}>
-                      {truncateId(plan.player_id)}
+                    <td className="py-2 text-gray-400" title={plan.guardian_profile_id}>
+                      {plan.guardian_name || truncateId(plan.guardian_profile_id)}
                     </td>
                     <td className="py-2 text-gray-400">{relativeTime(plan.created_at)}</td>
                     <td className="py-2 text-center">{plan.steps.notified ? '✅' : '○'}</td>
@@ -208,8 +208,8 @@ function PlanStatusTable({
                       <td colSpan={8} className="py-3 px-4">
                         <div className="text-xs text-gray-400 space-y-1">
                           <p><strong>Plan ID:</strong> {plan.plan_id}</p>
-                          <p><strong>Player ID:</strong> {plan.player_id}</p>
-                          <p><strong>Guardian Profile:</strong> {plan.guardian_profile_id || '—'}</p>
+                          <p><strong>Guardian:</strong> {plan.guardian_name || '—'}</p>
+                          <p><strong>Guardian Profile ID:</strong> {plan.guardian_profile_id || '—'}</p>
                           <p><strong>Created:</strong> {new Date(plan.created_at).toLocaleString()}</p>
                           <p><strong>Reached Step:</strong> {plan.reached_step} of 6</p>
                         </div>

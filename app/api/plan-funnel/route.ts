@@ -79,14 +79,20 @@ export async function GET(request: NextRequest) {
       readNotificationsResult,
       viewsResult,
     ] = await Promise.all([
-      // Step 1: Plans Created
+      // Step 1: Plans Created (with guardian profile name)
       customerClient
         .from('generated_plans')
         .select(`
           id,
           player_id,
           created_at,
-          players!inner(guardian_profile_id)
+          players!inner(
+            guardian_profile_id,
+            profiles!players_guardian_profile_id_fkey(
+              first_name,
+              last_name
+            )
+          )
         `)
         .eq('org_id', orgId)
         .gte('created_at', fromISO)
@@ -141,22 +147,31 @@ export async function GET(request: NextRequest) {
     ])
 
     // Process Step 1: Plans
-    type PlanDbRow = { id: string; player_id: string; created_at: string; players: { guardian_profile_id: string } | { guardian_profile_id: string }[] | null }
+    type ProfileData = { first_name: string | null; last_name: string | null }
+    type PlayerData = { guardian_profile_id: string; profiles: ProfileData | ProfileData[] | null }
+    type PlanDbRow = { id: string; player_id: string; created_at: string; players: PlayerData | PlayerData[] | null }
     const planRows: PlanRow[] = ((plansResult.data || []) as unknown as PlanDbRow[]).map(row => {
       // Handle both single object and array formats from Supabase joins
       const players = row.players
       let guardianId = ''
+      let guardianName = ''
       if (players) {
-        if (Array.isArray(players)) {
-          guardianId = players[0]?.guardian_profile_id || ''
-        } else {
-          guardianId = players.guardian_profile_id || ''
+        const player = Array.isArray(players) ? players[0] : players
+        if (player) {
+          guardianId = player.guardian_profile_id || ''
+          const profile = Array.isArray(player.profiles) ? player.profiles[0] : player.profiles
+          if (profile) {
+            const firstName = profile.first_name || ''
+            const lastName = profile.last_name || ''
+            guardianName = `${firstName} ${lastName}`.trim()
+          }
         }
       }
       return {
         plan_id: row.id,
         player_id: row.player_id,
         guardian_profile_id: guardianId,
+        guardian_name: guardianName,
         created_at: row.created_at,
       }
     })
@@ -334,6 +349,7 @@ export async function GET(request: NextRequest) {
         plan_id: plan.plan_id,
         player_id: plan.player_id,
         guardian_profile_id: plan.guardian_profile_id,
+        guardian_name: plan.guardian_name,
         created_at: plan.created_at,
         reached_step,
         steps: { notified, emailed, delivered, read, viewed },
