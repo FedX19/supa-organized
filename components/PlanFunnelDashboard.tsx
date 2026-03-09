@@ -163,7 +163,7 @@ function PlanStatusTable({
           <thead>
             <tr className="border-b border-dark-border">
               <th className="text-left text-gray-400 font-medium pb-2">Plan</th>
-              <th className="text-left text-gray-400 font-medium pb-2">Guardian</th>
+              <th className="text-left text-gray-400 font-medium pb-2">Parent</th>
               <th
                 className="text-left text-gray-400 font-medium pb-2 cursor-pointer hover:text-white"
                 onClick={() => handleSort('created_at')}
@@ -208,8 +208,8 @@ function PlanStatusTable({
                       <td colSpan={8} className="py-3 px-4">
                         <div className="text-xs text-gray-400 space-y-1">
                           <p><strong>Plan ID:</strong> {plan.plan_id}</p>
-                          <p><strong>Guardian:</strong> {plan.guardian_name || '—'}</p>
-                          <p><strong>Guardian Profile ID:</strong> {plan.guardian_profile_id || '—'}</p>
+                          <p><strong>Parent:</strong> {plan.guardian_name || '—'}</p>
+                          <p><strong>Parent Profile ID:</strong> {plan.guardian_profile_id || '—'}</p>
                           <p><strong>Created:</strong> {new Date(plan.created_at).toLocaleString()}</p>
                           <p><strong>Reached Step:</strong> {plan.reached_step} of 6</p>
                         </div>

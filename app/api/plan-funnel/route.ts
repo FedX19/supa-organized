@@ -148,27 +148,48 @@ export async function GET(request: NextRequest) {
     // Fetch player -> guardian profile mappings separately if we have plans
     const playerIds = Array.from(new Set(planRows.map(r => r.player_id)))
     if (playerIds.length > 0) {
+      // First get the players with their guardian_profile_id
       const { data: playersData } = await customerClient
         .from('players')
-        .select('id, guardian_profile_id, profiles(first_name, last_name)')
+        .select('id, guardian_profile_id')
         .in('id', playerIds)
 
       if (playersData) {
-        type ProfileInfo = { first_name: string | null; last_name: string | null }
-        type PlayerWithProfile = { id: string; guardian_profile_id: string; profiles: ProfileInfo | ProfileInfo[] | null }
-        const playerMap = new Map<string, PlayerWithProfile>()
-        for (const p of playersData as unknown as PlayerWithProfile[]) {
-          playerMap.set(p.id, p)
+        // Build a map of player_id -> guardian_profile_id
+        const playerToGuardian = new Map<string, string>()
+        const guardianProfileIds: string[] = []
+        for (const p of playersData) {
+          if (p.guardian_profile_id) {
+            playerToGuardian.set(p.id, p.guardian_profile_id)
+            guardianProfileIds.push(p.guardian_profile_id)
+          }
         }
-        for (const plan of planRows) {
-          const player = playerMap.get(plan.player_id)
-          if (player) {
-            plan.guardian_profile_id = player.guardian_profile_id || ''
-            const profile = Array.isArray(player.profiles) ? player.profiles[0] : player.profiles
-            if (profile) {
-              const firstName = profile.first_name || ''
-              const lastName = profile.last_name || ''
-              plan.guardian_name = `${firstName} ${lastName}`.trim()
+
+        // Now fetch the profile names for those guardian_profile_ids
+        if (guardianProfileIds.length > 0) {
+          const { data: profilesData } = await customerClient
+            .from('profiles')
+            .select('id, first_name, last_name')
+            .in('id', guardianProfileIds)
+
+          if (profilesData) {
+            const profileMap = new Map<string, { first_name: string | null; last_name: string | null }>()
+            for (const profile of profilesData) {
+              profileMap.set(profile.id, { first_name: profile.first_name, last_name: profile.last_name })
+            }
+
+            // Now populate the plan rows
+            for (const plan of planRows) {
+              const guardianId = playerToGuardian.get(plan.player_id)
+              if (guardianId) {
+                plan.guardian_profile_id = guardianId
+                const profile = profileMap.get(guardianId)
+                if (profile) {
+                  const firstName = profile.first_name || ''
+                  const lastName = profile.last_name || ''
+                  plan.guardian_name = `${firstName} ${lastName}`.trim()
+                }
+              }
             }
           }
         }
