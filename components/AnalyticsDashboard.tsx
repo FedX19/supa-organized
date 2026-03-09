@@ -1183,7 +1183,8 @@ export default function AnalyticsDashboard({
         )}
         {activeTab === 'plan-funnel' && (
           <PlanFunnelDashboard
-            organizations={organizations}
+            selectedOrgId={selectedOrgId}
+            range={range}
             getValidAccessToken={getValidAccessToken}
           />
         )}

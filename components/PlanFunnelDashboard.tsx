@@ -2,14 +2,14 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import type {
-  RangeType,
   PlanFunnelResponse,
   FunnelStep,
   PlanBreakdownItem,
 } from '@/lib/plan-funnel-types'
 
 interface PlanFunnelDashboardProps {
-  organizations: { id: string; name: string }[]
+  selectedOrgId: string
+  range: '7d' | '30d'
   getValidAccessToken: () => Promise<string | null>
 }
 
@@ -270,22 +270,14 @@ function DrilldownPanel({
 }
 
 export default function PlanFunnelDashboard({
-  organizations,
+  selectedOrgId,
+  range,
   getValidAccessToken,
 }: PlanFunnelDashboardProps) {
-  const [selectedOrgId, setSelectedOrgId] = useState('')
-  const [range, setRange] = useState<RangeType>('30d')
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [data, setData] = useState<PlanFunnelResponse | null>(null)
   const [expandedPlan, setExpandedPlan] = useState<string | null>(null)
-
-  // Auto-select first org
-  useEffect(() => {
-    if (organizations.length > 0 && !selectedOrgId) {
-      setSelectedOrgId(organizations[0].id)
-    }
-  }, [organizations, selectedOrgId])
 
   const fetchData = useCallback(async () => {
     if (!selectedOrgId) return
@@ -331,59 +323,6 @@ export default function PlanFunnelDashboard({
 
   return (
     <div className="space-y-6 overflow-hidden">
-      {/* Toolbar */}
-      <div className="flex flex-col gap-4">
-        <div className="flex items-center justify-between">
-          <h2 className="text-xl font-semibold text-white">Plan Funnel</h2>
-          <button
-            onClick={fetchData}
-            disabled={isLoading}
-            className="flex items-center gap-2 px-3 py-2 bg-dark-card border border-dark-border rounded-lg text-gray-400 hover:text-white hover:border-gray-500 transition-colors disabled:opacity-50"
-          >
-            <svg
-              className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`}
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
-              />
-            </svg>
-          </button>
-        </div>
-        <div className="flex flex-wrap items-center gap-3">
-          <select
-            value={selectedOrgId}
-            onChange={(e) => setSelectedOrgId(e.target.value)}
-            className="flex-1 min-w-0 bg-dark-card border border-dark-border rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:ring-2 focus:ring-primary"
-          >
-            {organizations.map((org) => (
-              <option key={org.id} value={org.id}>
-                {org.name}
-              </option>
-            ))}
-          </select>
-          <div className="flex rounded-lg border border-dark-border overflow-hidden shrink-0">
-            {(['7d', '30d', 'all'] as RangeType[]).map((r) => (
-              <button
-                key={r}
-                onClick={() => setRange(r)}
-                className={`px-3 py-2 text-sm transition-colors ${
-                  range === r
-                    ? 'bg-primary text-black font-medium'
-                    : 'bg-dark-card text-gray-400 hover:text-white'
-                }`}
-              >
-                {r === 'all' ? 'All' : r}
-              </button>
-            ))}
-          </div>
-        </div>
-      </div>
 
       {/* Error State */}
       {error && (
@@ -411,7 +350,7 @@ export default function PlanFunnelDashboard({
             <SummaryCard
               title="Plans Created"
               value={data.summary.plansCreated}
-              subtitle={`in the last ${range === 'all' ? 'all time' : range}`}
+              subtitle={`in the last ${range}`}
             />
             <SummaryCard
               title="Overall Conversion"

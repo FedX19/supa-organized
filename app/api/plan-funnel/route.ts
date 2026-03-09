@@ -79,21 +79,10 @@ export async function GET(request: NextRequest) {
       readNotificationsResult,
       viewsResult,
     ] = await Promise.all([
-      // Step 1: Plans Created (with guardian profile name)
+      // Step 1: Plans Created
       customerClient
         .from('generated_plans')
-        .select(`
-          id,
-          player_id,
-          created_at,
-          players(
-            guardian_profile_id,
-            profiles(
-              first_name,
-              last_name
-            )
-          )
-        `)
+        .select('id, player_id, created_at')
         .eq('org_id', orgId)
         .gte('created_at', fromISO)
         .lte('created_at', toISO)
@@ -147,34 +136,45 @@ export async function GET(request: NextRequest) {
     ])
 
     // Process Step 1: Plans
-    type ProfileData = { first_name: string | null; last_name: string | null }
-    type PlayerData = { guardian_profile_id: string; profiles: ProfileData | ProfileData[] | null }
-    type PlanDbRow = { id: string; player_id: string; created_at: string; players: PlayerData | PlayerData[] | null }
-    const planRows: PlanRow[] = ((plansResult.data || []) as unknown as PlanDbRow[]).map(row => {
-      // Handle both single object and array formats from Supabase joins
-      const players = row.players
-      let guardianId = ''
-      let guardianName = ''
-      if (players) {
-        const player = Array.isArray(players) ? players[0] : players
-        if (player) {
-          guardianId = player.guardian_profile_id || ''
-          const profile = Array.isArray(player.profiles) ? player.profiles[0] : player.profiles
-          if (profile) {
-            const firstName = profile.first_name || ''
-            const lastName = profile.last_name || ''
-            guardianName = `${firstName} ${lastName}`.trim()
+    type PlanDbRow = { id: string; player_id: string; created_at: string }
+    const planRows: PlanRow[] = ((plansResult.data || []) as PlanDbRow[]).map(row => ({
+      plan_id: row.id,
+      player_id: row.player_id,
+      guardian_profile_id: '',
+      guardian_name: '',
+      created_at: row.created_at,
+    }))
+
+    // Fetch player -> guardian profile mappings separately if we have plans
+    const playerIds = Array.from(new Set(planRows.map(r => r.player_id)))
+    if (playerIds.length > 0) {
+      const { data: playersData } = await customerClient
+        .from('players')
+        .select('id, guardian_profile_id, profiles(first_name, last_name)')
+        .in('id', playerIds)
+
+      if (playersData) {
+        type ProfileInfo = { first_name: string | null; last_name: string | null }
+        type PlayerWithProfile = { id: string; guardian_profile_id: string; profiles: ProfileInfo | ProfileInfo[] | null }
+        const playerMap = new Map<string, PlayerWithProfile>()
+        for (const p of playersData as unknown as PlayerWithProfile[]) {
+          playerMap.set(p.id, p)
+        }
+        for (const plan of planRows) {
+          const player = playerMap.get(plan.player_id)
+          if (player) {
+            plan.guardian_profile_id = player.guardian_profile_id || ''
+            const profile = Array.isArray(player.profiles) ? player.profiles[0] : player.profiles
+            if (profile) {
+              const firstName = profile.first_name || ''
+              const lastName = profile.last_name || ''
+              plan.guardian_name = `${firstName} ${lastName}`.trim()
+            }
           }
         }
       }
-      return {
-        plan_id: row.id,
-        player_id: row.player_id,
-        guardian_profile_id: guardianId,
-        guardian_name: guardianName,
-        created_at: row.created_at,
-      }
-    })
+    }
+
     const planGuardians = new Set(planRows.map(r => r.guardian_profile_id).filter(Boolean))
 
     // Process Step 2: Notifications
