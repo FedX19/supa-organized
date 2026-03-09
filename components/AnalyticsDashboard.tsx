@@ -16,6 +16,7 @@ import {
   ResponsiveContainer,
 } from 'recharts'
 import { UserConnection } from '@/lib/supabase'
+import PlanFunnelDashboard from './PlanFunnelDashboard'
 
 /* eslint-disable @next/next/no-assign-module-variable */
 // Data types are intentionally loose since they come from API JSON responses
@@ -31,7 +32,7 @@ interface AnalyticsDashboardProps {
   getValidAccessToken: () => Promise<string | null>
 }
 
-type TabType = 'adoption' | 'usage' | 'errors'
+type TabType = 'adoption' | 'usage' | 'errors' | 'plan-funnel'
 type RangeType = '7d' | '30d'
 
 const ROLE_COLORS: Record<string, string> = {
@@ -1054,6 +1055,7 @@ export default function AnalyticsDashboard({
     { id: 'adoption', label: 'Adoption' },
     { id: 'usage', label: 'Usage' },
     { id: 'errors', label: 'Errors' },
+    { id: 'plan-funnel', label: 'Plan Funnel' },
   ]
 
   return (
@@ -1178,6 +1180,12 @@ export default function AnalyticsDashboard({
         )}
         {activeTab === 'errors' && (
           <ErrorsTab data={errorsData} isLoading={isLoading} />
+        )}
+        {activeTab === 'plan-funnel' && (
+          <PlanFunnelDashboard
+            organizations={organizations}
+            getValidAccessToken={getValidAccessToken}
+          />
         )}
       </div>
 
