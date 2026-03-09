@@ -141,7 +141,7 @@ export async function GET(request: NextRequest) {
       plan_id: row.id,
       player_id: row.player_id,
       guardian_profile_id: '',
-      guardian_name: '',
+      parent_email: '',
       created_at: row.created_at,
     }))
 
@@ -165,17 +165,17 @@ export async function GET(request: NextRequest) {
           }
         }
 
-        // Now fetch the profile names for those guardian_profile_ids
+        // Now fetch the profile emails for those guardian_profile_ids
         if (guardianProfileIds.length > 0) {
           const { data: profilesData } = await customerClient
             .from('profiles')
-            .select('id, first_name, last_name')
+            .select('id, email')
             .in('id', guardianProfileIds)
 
           if (profilesData) {
-            const profileMap = new Map<string, { first_name: string | null; last_name: string | null }>()
+            const profileMap = new Map<string, string>()
             for (const profile of profilesData) {
-              profileMap.set(profile.id, { first_name: profile.first_name, last_name: profile.last_name })
+              profileMap.set(profile.id, profile.email || '')
             }
 
             // Now populate the plan rows
@@ -183,12 +183,7 @@ export async function GET(request: NextRequest) {
               const guardianId = playerToGuardian.get(plan.player_id)
               if (guardianId) {
                 plan.guardian_profile_id = guardianId
-                const profile = profileMap.get(guardianId)
-                if (profile) {
-                  const firstName = profile.first_name || ''
-                  const lastName = profile.last_name || ''
-                  plan.guardian_name = `${firstName} ${lastName}`.trim()
-                }
+                plan.parent_email = profileMap.get(guardianId) || ''
               }
             }
           }
@@ -370,7 +365,7 @@ export async function GET(request: NextRequest) {
         plan_id: plan.plan_id,
         player_id: plan.player_id,
         guardian_profile_id: plan.guardian_profile_id,
-        guardian_name: plan.guardian_name,
+        parent_email: plan.parent_email,
         created_at: plan.created_at,
         reached_step,
         steps: { notified, emailed, delivered, read, viewed },

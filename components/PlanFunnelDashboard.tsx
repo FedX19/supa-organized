@@ -162,8 +162,7 @@ function PlanStatusTable({
         <table className="w-full text-sm min-w-[600px]">
           <thead>
             <tr className="border-b border-dark-border">
-              <th className="text-left text-gray-400 font-medium pb-2">Plan</th>
-              <th className="text-left text-gray-400 font-medium pb-2">Parent</th>
+              <th className="text-left text-gray-400 font-medium pb-2">Parent Email</th>
               <th
                 className="text-left text-gray-400 font-medium pb-2 cursor-pointer hover:text-white"
                 onClick={() => handleSort('created_at')}
@@ -190,11 +189,8 @@ function PlanStatusTable({
                     className={`border-b border-dark-border/50 cursor-pointer hover:bg-dark-border/30 ${rowClass}`}
                     onClick={() => onToggleExpand(plan.plan_id)}
                   >
-                    <td className="py-2 text-white whitespace-nowrap" title={plan.plan_id}>
-                      {truncateId(plan.plan_id)}
-                    </td>
-                    <td className="py-2 text-gray-400 whitespace-nowrap max-w-[120px] truncate" title={plan.guardian_profile_id}>
-                      {plan.guardian_name || truncateId(plan.guardian_profile_id)}
+                    <td className="py-2 text-white whitespace-nowrap max-w-[200px] truncate" title={plan.parent_email}>
+                      {plan.parent_email || '—'}
                     </td>
                     <td className="py-2 text-gray-400 whitespace-nowrap">{relativeTime(plan.created_at)}</td>
                     <td className="py-2 text-center">{plan.steps.notified ? '✅' : '○'}</td>
@@ -205,11 +201,10 @@ function PlanStatusTable({
                   </tr>
                   {isExpanded && (
                     <tr key={`${plan.plan_id}-expanded`} className="bg-dark-border/20">
-                      <td colSpan={8} className="py-3 px-4">
+                      <td colSpan={7} className="py-3 px-4">
                         <div className="text-xs text-gray-400 space-y-1">
                           <p><strong>Plan ID:</strong> {plan.plan_id}</p>
-                          <p><strong>Parent:</strong> {plan.guardian_name || '—'}</p>
-                          <p><strong>Parent Profile ID:</strong> {plan.guardian_profile_id || '—'}</p>
+                          <p><strong>Parent Email:</strong> {plan.parent_email || '—'}</p>
                           <p><strong>Created:</strong> {new Date(plan.created_at).toLocaleString()}</p>
                           <p><strong>Reached Step:</strong> {plan.reached_step} of 6</p>
                         </div>

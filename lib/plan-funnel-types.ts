@@ -38,7 +38,7 @@ export interface PlanBreakdownItem {
   plan_id: string
   player_id: string
   guardian_profile_id: string
-  guardian_name: string
+  parent_email: string
   created_at: string
   reached_step: number
   steps: PlanStepStatus
@@ -88,7 +88,7 @@ export interface PlanRow {
   plan_id: string
   player_id: string
   guardian_profile_id: string
-  guardian_name: string
+  parent_email: string
   created_at: string
 }
 
