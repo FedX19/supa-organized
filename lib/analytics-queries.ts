@@ -495,3 +495,88 @@ export async function queryParentEvents(
 
   return count || 0
 }
+
+// ═══════════════════════════════════════════
+// PLAN NOTIFICATION FUNNEL
+// ═══════════════════════════════════════════
+// Tracks: notification_created -> email_sent -> email_opened ->
+//         email_clicked -> login_completed -> plan_viewed -> drill_opened
+
+export const PLAN_FUNNEL_STEPS = [
+  'player_plan_notification_created',
+  'player_plan_email_sent',
+  'player_plan_email_opened',
+  'player_plan_email_clicked',
+  'player_plan_login_completed',
+  'player_plan_viewed',
+  'player_plan_drill_opened',
+] as const
+
+export type PlanFunnelStep = typeof PLAN_FUNNEL_STEPS[number]
+
+export interface PlanFunnelStepResult {
+  step: PlanFunnelStep
+  label: string
+  unique_users: number
+  dropoff_pct: string | null
+}
+
+const STEP_LABELS: Record<PlanFunnelStep, string> = {
+  'player_plan_notification_created': 'Notification Created',
+  'player_plan_email_sent': 'Email Sent',
+  'player_plan_email_opened': 'Email Opened',
+  'player_plan_email_clicked': 'Email Clicked',
+  'player_plan_login_completed': 'Login Completed',
+  'player_plan_viewed': 'Plan Viewed',
+  'player_plan_drill_opened': 'Drill Opened',
+}
+
+export async function queryPlanFunnel(
+  client: AnyClient,
+  orgId: string,
+  start: string,
+  end: string
+): Promise<PlanFunnelStepResult[]> {
+  const { data, error } = await client
+    .from('user_activity')
+    .select('event_type, profile_id')
+    .eq('organization_id', orgId)
+    .in('event_type', PLAN_FUNNEL_STEPS as unknown as string[])
+    .gte('timestamp', start)
+    .lte('timestamp', end)
+
+  if (error || !data) {
+    return PLAN_FUNNEL_STEPS.map(step => ({
+      step,
+      label: STEP_LABELS[step],
+      unique_users: 0,
+      dropoff_pct: null,
+    }))
+  }
+
+  type Row = { event_type: string; profile_id: string }
+  const rows = data as Row[]
+
+  // Count unique profile_ids per step
+  const counts: Record<string, number> = {}
+  for (const step of PLAN_FUNNEL_STEPS) {
+    const stepRows = rows.filter(r => r.event_type === step)
+    counts[step] = new Set(stepRows.map(r => r.profile_id)).size
+  }
+
+  // Compute drop-off between each step
+  return PLAN_FUNNEL_STEPS.map((step, i) => {
+    const current = counts[step]
+    const prior = i > 0 ? counts[PLAN_FUNNEL_STEPS[i - 1]] : current
+    const dropoff = prior > 0
+      ? (((prior - current) / prior) * 100).toFixed(1)
+      : null
+
+    return {
+      step,
+      label: STEP_LABELS[step],
+      unique_users: current,
+      dropoff_pct: i === 0 ? null : dropoff,
+    }
+  })
+}

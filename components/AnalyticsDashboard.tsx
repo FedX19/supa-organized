@@ -20,7 +20,8 @@ import { UserConnection } from '@/lib/supabase'
 /* eslint-disable @next/next/no-assign-module-variable */
 // Data types are intentionally loose since they come from API JSON responses
 interface MetricPair { current: number; prior?: number; delta?: number; [key: string]: unknown }
-interface AdoptionData { hasData: boolean; metrics: { logins?: MetricPair; activeUsers: MetricPair; evaluationsSubmitted: MetricPair & { uniqueCoaches: number }; plansGenerated: MetricPair; plansOpenedByParents: MetricPair & { uniqueParents: number }; openRate: { current: number | null; prior?: number | null; delta?: number | null }; medianTimeToOpen?: { medianHours: number | null; p75Hours: number | null; unit: string } }; sparkline: { date: string; logins: number; active_users: number; evaluations: number; plans_generated: number; plans_opened: number }[]; topCoaches: { profile_id: string; full_name: string; email: string; evaluations_submitted: number; plans_generated: number; last_active: string }[]; topParents: { profile_id: string; full_name: string; email: string; plans_opened: number; first_open: string; last_open: string }[] }
+interface PlanFunnelStep { step: string; label: string; unique_users: number; dropoff_pct: string | null }
+interface AdoptionData { hasData: boolean; metrics: { logins?: MetricPair; activeUsers: MetricPair; evaluationsSubmitted: MetricPair & { uniqueCoaches: number }; plansGenerated: MetricPair; plansOpenedByParents: MetricPair & { uniqueParents: number }; openRate: { current: number | null; prior?: number | null; delta?: number | null }; medianTimeToOpen?: { medianHours: number | null; p75Hours: number | null; unit: string } }; sparkline: { date: string; logins: number; active_users: number; evaluations: number; plans_generated: number; plans_opened: number }[]; topCoaches: { profile_id: string; full_name: string; email: string; evaluations_submitted: number; plans_generated: number; last_active: string }[]; topParents: { profile_id: string; full_name: string; email: string; plans_opened: number; first_open: string; last_open: string }[]; planFunnel?: PlanFunnelStep[] }
 interface UsageData { hasData: boolean; metrics: { logins?: MetricPair; activeUsers?: MetricPair; totalEvents?: MetricPair; totalFeatureEvents?: MetricPair; avgEventsPerDay: { current: number; prior: number }; uniqueUsersInPeriod?: number }; featureBreakdown: { name: string; count: number }[]; actionBreakdown: { name: string; count: number }[]; roleBreakdown: { name: string; count: number }[]; dailyActivity: { date: string; logins?: number; activeUsers?: number; events: number; uniqueUsers?: number }[]; hourlyDistribution: { hour: number; count: number }[]; topUsers: { profile_id: string; full_name: string; email: string; event_count: number; last_active: string }[] }
 interface ErrorsData { hasData?: boolean; metrics: { totalErrors: { current: number; prior: number; delta: number }; errorRate: { current: number; unit: string }; uniqueUsersAffected: number }; dailyErrorCounts: { date: string; count: number }[]; errorCodeBreakdown: { code: string; count: number }[]; errorRouteBreakdown: { route: string; count: number }[]; topErrorUsers: { profile_id: string; full_name: string; email: string; error_count: number }[]; recentErrors: { id: string; timestamp: string; profile_id: string; full_name: string; email: string; error_code: string; http_status: number | null; route: string; feature: string; source: string }[] }
 
@@ -140,7 +141,7 @@ function AdoptionTab({
   if (isLoading) return <LoadingSpinner />
   if (!data || !data.hasData) return <EmptyState message="No adoption data available for this organization" />
 
-  const { metrics, sparkline, topCoaches, topParents } = data
+  const { metrics, sparkline, topCoaches, topParents, planFunnel } = data
 
   return (
     <div className="space-y-6">
@@ -197,6 +198,38 @@ function AdoptionTab({
             : undefined}
         />
       </div>
+
+      {/* Plan Notification Funnel */}
+      {planFunnel && planFunnel.some(s => s.unique_users > 0) && (
+        <div className="bg-dark-card border border-dark-border rounded-xl p-5">
+          <h3 className="text-lg font-semibold text-white mb-2">Plan Notification Funnel</h3>
+          <p className="text-xs text-gray-500 mb-4">Shows where parents drop off in the notification-to-engagement flow</p>
+          <div className="flex items-center gap-2 overflow-x-auto pb-2">
+            {planFunnel.map((step, i) => (
+              <div key={step.step} className="flex items-center">
+                <div
+                  className={`flex-shrink-0 min-w-[100px] p-3 rounded-lg border text-center ${
+                    step.dropoff_pct && parseFloat(step.dropoff_pct) > 50
+                      ? 'border-red-400/50 bg-red-500/10'
+                      : 'border-dark-border bg-dark-card'
+                  }`}
+                >
+                  <p className="text-xs text-gray-400 truncate" title={step.label}>{step.label}</p>
+                  <p className="text-xl font-bold text-white">{step.unique_users}</p>
+                  {step.dropoff_pct && (
+                    <p className={`text-xs ${parseFloat(step.dropoff_pct) > 50 ? 'text-red-400' : 'text-gray-500'}`}>
+                      -{step.dropoff_pct}% drop
+                    </p>
+                  )}
+                </div>
+                {i < planFunnel.length - 1 && (
+                  <span className="text-gray-500 mx-1 flex-shrink-0">→</span>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Sparkline Chart */}
       <div className="bg-dark-card border border-dark-border rounded-xl p-5">

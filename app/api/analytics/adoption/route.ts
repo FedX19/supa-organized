@@ -7,6 +7,7 @@ import {
   queryFunnel,
   queryTimeToOpen,
   queryDailyBreakdown,
+  queryPlanFunnel,
 } from '@/lib/analytics-queries'
 
 type RangeType = '7d' | '30d'
@@ -81,6 +82,7 @@ export async function GET(request: NextRequest) {
       funnelPrior,
       timeToOpen,
       sparklineData,
+      planFunnelData,
       coachData,
       parentData,
     ] = await Promise.all([
@@ -97,6 +99,7 @@ export async function GET(request: NextRequest) {
         new Date(Date.now() - 14 * 24 * 60 * 60 * 1000).toISOString(),
         new Date().toISOString()
       ),
+      queryPlanFunnel(customerClient, orgId, fromISO, toISO),
       // Top coaches (evals + plans by coach-role users)
       customerClient
         .from('user_activity')
@@ -269,6 +272,7 @@ export async function GET(request: NextRequest) {
       sparkline,
       topCoaches,
       topParents,
+      planFunnel: planFunnelData,
     })
   } catch (error) {
     console.error('Adoption API error:', error)
