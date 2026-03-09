@@ -86,9 +86,9 @@ export async function GET(request: NextRequest) {
           id,
           player_id,
           created_at,
-          players!inner(
+          players(
             guardian_profile_id,
-            profiles!players_guardian_profile_id_fkey(
+            profiles(
               first_name,
               last_name
             )
