@@ -89,39 +89,36 @@ export async function GET(request: NextRequest) {
         .order('created_at', { ascending: false })
         .limit(500),
 
-      // Step 2: Notifications Created (plan-related)
+      // Step 2: Notifications Created - get all notifications for org
       customerClient
         .from('notifications')
         .select('id, profile_id, created_at, data, read_at, type')
         .eq('organization_id', orgId)
-        .or('type.ilike.%plan%,type.ilike.%player_plan%')
         .gte('created_at', fromISO)
         .lte('created_at', toISO)
         .order('created_at', { ascending: false })
-        .limit(500),
+        .limit(1000),
 
-      // Step 3 & 4: Emails Sent (plan-related)
+      // Step 3 & 4: Emails Sent - get all org emails, we'll check for plan_id in payload
       customerClient
         .from('email_outbox')
         .select('id, profile_id, created_at, status, payload, sent_at, last_error, attempts, template')
         .eq('organization_id', orgId)
-        .or('template.ilike.%plan%,template.ilike.%player_plan%')
         .gte('created_at', fromISO)
         .lte('created_at', toISO)
         .order('created_at', { ascending: false })
-        .limit(500),
+        .limit(1000),
 
-      // Step 5: Read notifications
+      // Step 5: Read notifications - get all read notifications
       customerClient
         .from('notifications')
         .select('id, profile_id, created_at, data, read_at')
         .eq('organization_id', orgId)
-        .or('type.ilike.%plan%,type.ilike.%player_plan%')
         .not('read_at', 'is', null)
         .gte('created_at', fromISO)
         .lte('created_at', toISO)
         .order('read_at', { ascending: false })
-        .limit(500),
+        .limit(1000),
 
       // Step 6: Plan Views from user_activity
       customerClient
