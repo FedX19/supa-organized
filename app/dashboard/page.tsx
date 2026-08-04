@@ -41,6 +41,7 @@ import ExportTools from '@/components/ExportTools'
 import AnalyticsDashboard from '@/components/AnalyticsDashboard'
 import ConnectionsPanel from '@/components/ConnectionsPanel'
 import RevenueDashboard from '@/components/RevenueDashboard'
+import PulseDashboard from '@/components/PulseDashboard'
 import {
   StripeMetrics,
   StripeSubscription,
@@ -68,7 +69,7 @@ interface StripeDataState {
   lastSyncedAt?: string | null
 }
 
-type SidebarView = 'dashboard' | 'analytics' | 'connections' | 'revenue'
+type SidebarView = 'pulse' | 'dashboard' | 'analytics' | 'connections' | 'revenue'
 type Tab = 'organizations' | 'users' | 'issues' | 'relationships' | 'export'
 type OrgView = 'grid' | 'detail'
 type UserView = 'search' | 'profile' | 'diagnostic'
@@ -907,6 +908,7 @@ function DashboardContent() {
 
   // Get page title based on view
   const getPageTitle = () => {
+    if (sidebarView === 'pulse') return 'Pulse'
     if (sidebarView === 'analytics') return 'Analytics'
     if (sidebarView === 'connections') return 'Connections'
     if (sidebarView === 'revenue') return 'Revenue Dashboard'
@@ -950,6 +952,28 @@ function DashboardContent() {
             <h1 className="text-2xl md:text-3xl font-bold text-white truncate">{getPageTitle()}</h1>
           </div>
         </div>
+
+        {/* Pulse View — the "what is happening right now" answer */}
+        {sidebarView === 'pulse' &&
+          (connection ? (
+            <PulseDashboard
+              connection={connection}
+              getValidAccessToken={getValidAccessToken}
+            />
+          ) : (
+            <div className="bg-card border border-card-border rounded-xl p-8 text-center">
+              <h3 className="text-xl font-bold text-white mb-2">Connect Your Database First</h3>
+              <p className="text-slate-400 mb-4">
+                Go to the Connections page to connect your Supabase database.
+              </p>
+              <a
+                href="/dashboard?view=connections"
+                className="inline-flex items-center gap-2 px-4 py-2 bg-primary hover:bg-primary-hover text-black font-medium rounded-lg transition-colors"
+              >
+                Go to Connections
+              </a>
+            </div>
+          ))}
 
         {/* Connections View */}
         {sidebarView === 'connections' && (
