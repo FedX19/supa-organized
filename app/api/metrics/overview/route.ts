@@ -73,6 +73,9 @@ export async function GET(request: NextRequest) {
         leagueLegacyExcluded: includeLeague ? 0 : leagueLegacyCount,
         byKind: kindCounts,
       },
+      // Lets the UI label retention as approximate when it came from the
+      // activity fallback rather than authoritative sign-in timestamps.
+      signInSource: graph.signInSource,
       signups,
       coaches,
       retention,
