@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
-import { decrypt } from '@/lib/encryption'
+import type { SupabaseClient } from '@supabase/supabase-js'
+import { getCustomerClient } from '@/lib/customer-client'
 
 // Type for user_activity rows
 interface UserActivityRow {
@@ -12,9 +12,8 @@ interface UserActivityRow {
   timestamp: string
 }
 
-// Generic supabase client type for customer databases (with any to handle dynamic schemas)
-// biome-ignore lint: Dynamic customer database client
-type AnySupabaseClient = ReturnType<typeof createClient<Record<string, never>>>
+// Generic supabase client type for customer databases (schemas are dynamic)
+type AnySupabaseClient = SupabaseClient
 
 type MetricType =
   | 'overview'
@@ -58,57 +57,6 @@ function getDateRange(range: string, dateFrom?: string, dateTo?: string): { from
   return { from, to }
 }
 
-async function getCustomerClient(request: NextRequest) {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
-  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-
-  if (!supabaseUrl || !supabaseAnonKey) {
-    throw new Error('Server configuration error')
-  }
-
-  // Get access token from Authorization header
-  const authHeader = request.headers.get('authorization')
-  if (!authHeader?.startsWith('Bearer ')) {
-    throw new Error('Missing authorization token')
-  }
-  const token = authHeader.substring(7)
-
-  // Create Supabase client with auth token in headers for RLS
-  const supabase = createClient(supabaseUrl, supabaseAnonKey, {
-    global: {
-      headers: {
-        Authorization: `Bearer ${token}`,
-      },
-    },
-  })
-
-  // Verify the user
-  const { data: { user }, error: authError } = await supabase.auth.getUser(token)
-
-  if (authError || !user) {
-    throw new Error('Unauthorized')
-  }
-
-  // Get user's connection
-  const { data: connection, error: connError } = await supabase
-    .from('user_connections')
-    .select('*')
-    .eq('user_id', user.id)
-    .single()
-
-  if (connError || !connection) {
-    throw new Error('No connection found')
-  }
-
-  // Decrypt the key
-  const decrypted = decrypt(connection.encrypted_key)
-  if (!decrypted) {
-    throw new Error('Failed to decrypt credentials')
-  }
-
-  // Create customer client - cast to AnySupabaseClient for compatibility
-  return createClient(connection.supabase_url, decrypted) as unknown as AnySupabaseClient
-}
 
 async function fetchOverviewMetrics(
   customerClient: AnySupabaseClient,

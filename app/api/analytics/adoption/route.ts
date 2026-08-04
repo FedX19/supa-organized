@@ -1,13 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
-import { decrypt } from '@/lib/encryption'
+import { getCustomerClient } from '@/lib/customer-client'
 import {
   queryLogins,
   queryActiveUsers,
   queryFunnel,
   queryTimeToOpen,
   queryDailyBreakdown,
-  queryPlanFunnel,
 } from '@/lib/analytics-queries'
 
 type RangeType = '7d' | '30d'
@@ -24,36 +22,6 @@ function getDateRanges(range: RangeType) {
   }
 }
 
-async function getCustomerClient(request: NextRequest) {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
-  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-
-  if (!supabaseUrl || !supabaseAnonKey) throw new Error('Server configuration error')
-
-  const authHeader = request.headers.get('authorization')
-  if (!authHeader?.startsWith('Bearer ')) throw new Error('Missing authorization token')
-  const token = authHeader.substring(7)
-
-  const supabase = createClient(supabaseUrl, supabaseAnonKey, {
-    global: { headers: { Authorization: `Bearer ${token}` } },
-  })
-
-  const { data: { user }, error: authError } = await supabase.auth.getUser(token)
-  if (authError || !user) throw new Error('Unauthorized')
-
-  const { data: connection, error: connError } = await supabase
-    .from('user_connections')
-    .select('*')
-    .eq('user_id', user.id)
-    .single()
-
-  if (connError || !connection) throw new Error('No connection found')
-
-  const decrypted = decrypt(connection.encrypted_key)
-  if (!decrypted) throw new Error('Failed to decrypt credentials')
-
-  return createClient(connection.supabase_url, decrypted)
-}
 
 export async function GET(request: NextRequest) {
   try {
@@ -82,7 +50,6 @@ export async function GET(request: NextRequest) {
       funnelPrior,
       timeToOpen,
       sparklineData,
-      planFunnelData,
       coachData,
       parentData,
     ] = await Promise.all([
@@ -99,7 +66,6 @@ export async function GET(request: NextRequest) {
         new Date(Date.now() - 14 * 24 * 60 * 60 * 1000).toISOString(),
         new Date().toISOString()
       ),
-      queryPlanFunnel(customerClient, orgId, fromISO, toISO),
       // Top coaches (evals + plans by coach-role users)
       customerClient
         .from('user_activity')
@@ -272,7 +238,6 @@ export async function GET(request: NextRequest) {
       sparkline,
       topCoaches,
       topParents,
-      planFunnel: planFunnelData,
     })
   } catch (error) {
     console.error('Adoption API error:', error)
