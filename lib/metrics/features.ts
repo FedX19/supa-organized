@@ -31,6 +31,7 @@ export interface FeatureDefinition {
  * events exist but no new ones will ever arrive.
  */
 export const FEATURE_REGISTRY: FeatureDefinition[] = [
+  // Instrumented before 2026-08-04.
   { key: 'auth', label: 'Login', status: 'instrumented' },
   { key: 'org_context', label: 'Workspace load', status: 'instrumented' },
   { key: 'evaluations', label: 'Assessments', status: 'instrumented' },
@@ -38,26 +39,94 @@ export const FEATURE_REGISTRY: FeatureDefinition[] = [
   { key: 'documents', label: 'Documents', status: 'instrumented' },
   { key: 'mdc_library', label: 'MDC library', status: 'instrumented' },
   { key: 'announcements', label: 'Announcements', status: 'instrumented' },
+
+  // Instrumented 2026-08-04 by unitehq PRs #1053 and #1054.
+  // ⚠️ These have NO HISTORICAL DATA before that date. A low event count here
+  // means "recently instrumented", not "recently abandoned" — do not read a
+  // trend across the boundary.
+  {
+    key: 'coach_assistant',
+    label: 'Coach AI Assistant',
+    status: 'instrumented',
+    note: 'Instrumented 2026-08-04 (#1053). No data before then.',
+  },
+  {
+    key: 'drill_library',
+    label: 'Drill library',
+    status: 'instrumented',
+    note: 'Instrumented 2026-08-04 (#1053). No data before then.',
+  },
+  {
+    key: 'video_review',
+    label: 'Video review',
+    status: 'instrumented',
+    note: 'Instrumented 2026-08-04 (#1053). No data before then.',
+  },
+  {
+    key: 'practice_plans',
+    label: 'Practice plans',
+    status: 'instrumented',
+    note: 'Instrumented 2026-08-04 (#1053). No data before then.',
+  },
+  {
+    key: 'tools',
+    label: 'Tool enable / disable',
+    status: 'instrumented',
+    note: 'Instrumented 2026-08-04 (#1053). No data before then.',
+  },
+  {
+    key: 'chat',
+    label: 'Chat / messaging',
+    status: 'instrumented',
+    note: 'Instrumented 2026-08-04 (#1054). No data before then.',
+  },
+  {
+    key: 'workout_planner',
+    label: 'Workout planner',
+    status: 'instrumented',
+    note: 'Instrumented 2026-08-04 (#1054). No data before then.',
+  },
+  {
+    key: 'routine_planner',
+    label: 'Daily routines',
+    status: 'instrumented',
+    note: 'Instrumented 2026-08-04 (#1054). No data before then.',
+  },
+  {
+    key: 'marketplace',
+    label: 'Marketplace listing',
+    status: 'instrumented',
+    note: 'Instrumented 2026-08-04 (#1054). No data before then.',
+  },
+  {
+    key: 'billing',
+    label: 'Billing / Stripe',
+    status: 'instrumented',
+    note: 'Instrumented 2026-08-04 (#1054). Connect onboarding start only.',
+  },
+  {
+    key: 'onboarding',
+    label: 'Onboarding wizard',
+    status: 'instrumented',
+    note: 'Instrumented 2026-08-04 (#1054). No data before then.',
+  },
+
+  // Still emitting nothing.
+  { key: 'drive_importer', label: 'Google Drive importer', status: 'not_instrumented' },
+
   {
     key: 'schedule',
     label: 'Schedule',
     status: 'retired',
     note: 'League product, deleted July 2026. Historical events only.',
   },
-
-  // Live product surfaces that emit NOTHING today.
-  { key: 'coach_assistant', label: 'Coach AI Assistant', status: 'not_instrumented' },
-  { key: 'drill_library', label: 'Drill library', status: 'not_instrumented' },
-  { key: 'video_review', label: 'Video review', status: 'not_instrumented' },
-  { key: 'chat', label: 'Chat / messaging', status: 'not_instrumented' },
-  { key: 'workout_planner', label: 'Workout planner', status: 'not_instrumented' },
-  { key: 'routine_planner', label: 'Daily routines', status: 'not_instrumented' },
-  { key: 'practice_plans', label: 'Practice plans', status: 'not_instrumented' },
-  { key: 'marketplace', label: 'Marketplace listing', status: 'not_instrumented' },
-  { key: 'drive_importer', label: 'Google Drive importer', status: 'not_instrumented' },
-  { key: 'onboarding', label: 'Onboarding wizard', status: 'not_instrumented' },
-  { key: 'billing', label: 'Billing / Stripe', status: 'not_instrumented' },
 ]
+
+/**
+ * The date the second instrumentation wave landed. Features carrying a
+ * "no data before then" note cannot be compared against anything earlier.
+ */
+export const INSTRUMENTATION_WAVE_2 = new Date('2026-08-04T00:00:00Z')
 
 export interface FeatureUsageRow {
   key: string
@@ -205,7 +274,10 @@ export function computeFeatureMetrics(
     totalEvents: relevant.length,
     errorCount,
     unknownFeatures,
-    coverageNote: `${instrumentedCount} of ${instrumentedCount + notInstrumentedCount} live features emit telemetry. ${notInstrumentedCount} report nothing yet — a blank row below means "not measured", not "not used".`,
+    coverageNote:
+      notInstrumentedCount > 0
+        ? `${instrumentedCount} of ${instrumentedCount + notInstrumentedCount} live features emit telemetry. ${notInstrumentedCount} report nothing yet — a blank row means "not measured", not "not used". Features marked "new" were instrumented on 4 Aug 2026 and have no history before that.`
+        : `All ${instrumentedCount} live features emit telemetry. Features marked "new" were instrumented on 4 Aug 2026 — a low count there means recently instrumented, not recently abandoned.`,
     warnings,
   }
 }

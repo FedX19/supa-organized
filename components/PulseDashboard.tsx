@@ -59,6 +59,7 @@ interface OverviewPayload {
   success: boolean
   generatedAt: string
   includeLeague: boolean
+  signInSource: 'auth_admin_api' | 'activity_fallback' | 'unavailable'
   totals: {
     visibleUsers: number
     allUsers: number
@@ -244,6 +245,17 @@ export default function PulseDashboard({ connection, getValidAccessToken }: Prop
           )}
         </label>
       </div>
+
+      {data.signInSource === 'activity_fallback' && (
+        <div className="bg-blue-500/10 border border-blue-500/30 rounded-xl p-4">
+          <p className="text-blue-300 text-sm">
+            <strong>Activity-based estimate.</strong> Sign-in history could not be read, so
+            &ldquo;active&rdquo; and &ldquo;never signed in&rdquo; are derived from logged activity
+            instead. This <strong>under-reports</strong> — anyone who signed in without
+            triggering a tracked action is counted as inactive.
+          </p>
+        </div>
+      )}
 
       {data.warnings.length > 0 && (
         <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-4">
@@ -496,6 +508,14 @@ export default function PulseDashboard({ connection, getValidAccessToken }: Prop
                       <span className="ml-2 text-xs px-2 py-0.5 rounded-full bg-zinc-500/20 text-zinc-400">
                         retired
                       </span>
+                    )}
+                    {f.status === 'instrumented' && f.note?.includes('No data before') && (
+                      <span className="ml-2 text-xs px-2 py-0.5 rounded-full bg-blue-500/20 text-blue-400">
+                        new
+                      </span>
+                    )}
+                    {f.note && (
+                      <span className="block text-xs text-slate-500 mt-0.5">{f.note}</span>
                     )}
                   </td>
                   <td className="px-3 py-2 text-slate-300">

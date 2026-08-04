@@ -60,11 +60,19 @@ export interface IdentityGraph {
   byId: Map<string, ResolvedUser>
   orgs: Map<string, OrgRow>
   /**
-   * True when last_sign_in_at could not be read. Retention and activation are
-   * unavailable (not zero) in that case — callers must not render 0.
+   * True when neither the admin API nor the activity fallback produced any
+   * last-seen data. Retention and activation are unavailable (not zero) in
+   * that case — callers must not render 0.
    */
   signInDataUnavailable: boolean
   signInUnavailableReason?: string
+  /**
+   * Where lastSignInAt came from:
+   *  - auth_admin_api: authoritative sign-in timestamps
+   *  - activity_fallback: approximate, derived from user_activity. UNDER-reports.
+   *  - unavailable: no data at all
+   */
+  signInSource: 'auth_admin_api' | 'activity_fallback' | 'unavailable'
   warnings: string[]
 }
 
@@ -117,6 +125,37 @@ async function fetchAuthUsers(
   } catch (err) {
     return { map: null, reason: err instanceof Error ? err.message : 'admin API unavailable' }
   }
+}
+
+/**
+ * Fallback last-activity, derived from user_activity.
+ *
+ * The admin API is the better source (it sees every sign-in, including ones
+ * that never reached an instrumented route), but it is not guaranteed to be
+ * reachable with the stored key. user_activity IS readable over plain
+ * PostgREST, so this gives a reduced-accuracy answer instead of no answer.
+ *
+ * It UNDER-reports: a user who signed in but triggered no logged event is
+ * invisible here, and nothing exists before telemetry was switched on. Callers
+ * must label it as approximate rather than presenting it as sign-in truth.
+ */
+async function fetchLastActivityFallback(
+  client: SupabaseClient
+): Promise<Map<string, Date>> {
+  const map = new Map<string, Date>()
+  const res = await fetchAll<{ profile_id: string | null; timestamp: string }>(
+    client,
+    'user_activity',
+    { columns: 'id, profile_id, timestamp', orderBy: 'timestamp' }
+  )
+  for (const row of res.rows) {
+    if (!row.profile_id) continue
+    const ts = toDate(row.timestamp)
+    if (!ts) continue
+    const existing = map.get(row.profile_id)
+    if (!existing || ts > existing) map.set(row.profile_id, ts)
+  }
+  return map
 }
 
 export async function resolveIdentityGraph(client: SupabaseClient): Promise<IdentityGraph> {
@@ -190,13 +229,29 @@ export async function resolveIdentityGraph(client: SupabaseClient): Promise<Iden
   for (const m of membersRes.rows) addOrg(m.profile_id, m.organization_id)
   for (const s of staffRes.rows) addOrg(s.profile_id, s.organization_id)
 
-  const signInMap = authRes.map
-  const signInDataUnavailable = signInMap === null
-  if (signInDataUnavailable) {
-    warnings.push(
-      `Sign-in history unavailable (${authRes.reason ?? 'unknown'}). Activation and retention cannot be computed.`
-    )
+  // Prefer the admin API. If it is unreachable, fall back to last-activity
+  // derived from user_activity so retention degrades to "approximate" rather
+  // than disappearing entirely.
+  let signInMap = authRes.map
+  let signInSource: IdentityGraph['signInSource'] = 'auth_admin_api'
+
+  if (signInMap === null) {
+    const fallback = await fetchLastActivityFallback(client)
+    if (fallback.size > 0) {
+      signInMap = fallback
+      signInSource = 'activity_fallback'
+      warnings.push(
+        `Sign-in history unavailable (${authRes.reason ?? 'unknown'}). Falling back to last activity from user_activity — this UNDER-reports, because users who signed in without triggering a logged event are invisible, and nothing exists before telemetry was enabled.`
+      )
+    } else {
+      signInSource = 'unavailable'
+      warnings.push(
+        `Sign-in history unavailable (${authRes.reason ?? 'unknown'}) and no user_activity fallback. Activation and retention are UNKNOWN, not zero.`
+      )
+    }
   }
+
+  const signInDataUnavailable = signInMap === null
 
   const users: ResolvedUser[] = profilesRes.rows.map((p) => {
     const orgIdSet = orgIdsByProfile.get(p.id) ?? new Set<string>()
@@ -250,6 +305,7 @@ export async function resolveIdentityGraph(client: SupabaseClient): Promise<Iden
     orgs,
     signInDataUnavailable,
     signInUnavailableReason: authRes.reason,
+    signInSource,
     warnings,
   }
 }
