@@ -4,8 +4,8 @@ import {
   AttributionAuthError,
   requireAttributionAccess,
 } from '@/lib/attribution/auth'
-import { listAttributionEvents } from '@/lib/attribution/events'
 import { createSupabaseAdminClient } from '@/lib/supabase'
+import { syncEventsFromUnite } from '@/lib/attribution/sync-from-unite'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -13,6 +13,10 @@ export const dynamic = 'force-dynamic'
 export async function GET(request: NextRequest) {
   try {
     const { workspaceId } = await requireAttributionAccess(request)
+
+    // Keep SoT warm: pull Unite bus → upsert (no-op if already present)
+    const sync = await syncEventsFromUnite(200)
+
     const hoursRaw = request.nextUrl.searchParams.get('hours')
     const hours = hoursRaw ? Number(hoursRaw) : 24 * 30
     const limitRaw = request.nextUrl.searchParams.get('limit')
@@ -46,6 +50,7 @@ export async function GET(request: NextRequest) {
       workspaceId,
       eventCount: events.length,
       analytics,
+      sync,
     })
   } catch (err) {
     if (err instanceof AttributionAuthError) {

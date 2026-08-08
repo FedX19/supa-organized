@@ -73,6 +73,8 @@ export async function OPTIONS(request: NextRequest) {
 export async function GET(request: NextRequest) {
   const headers = corsHeaders(request.headers.get('origin'))
   try {
+    // Opportunistic backfill from Unite bus
+    await syncEventsFromUnite(100)
     const limitRaw = request.nextUrl.searchParams.get('limit')
     const limit = limitRaw ? Number(limitRaw) : 100
     const events = await listAttributionEvents(Number.isFinite(limit) ? limit : 100)
