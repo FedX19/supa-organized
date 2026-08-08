@@ -931,6 +931,7 @@ function DashboardContent() {
   return (
     <div className="min-h-screen bg-background flex">
       <Sidebar
+        product="ops"
         userEmail={user.email}
         onLogout={handleLogout}
         activeView={sidebarView}
