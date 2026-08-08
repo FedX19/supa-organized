@@ -1,0 +1,16 @@
+-- =============================================================================
+-- OPTIONAL: Grant yourself Attribution access (run AFTER 20260808140000)
+-- Replace YOUR_AUTH_USER_UUID with your auth.users id from Supabase Auth.
+-- Once ANY member exists for workspace mdc, only members can read events.
+-- =============================================================================
+--
+-- insert into public.attribution_workspace_members (workspace_id, user_id, role)
+-- select w.id, 'YOUR_AUTH_USER_UUID'::uuid, 'admin'
+-- from public.attribution_workspaces w
+-- where w.slug = 'mdc'
+-- on conflict do nothing;
+--
+-- This file intentionally contains no executable DDL so applying all migrations
+-- is safe. Uncomment and run manually when ready.
+-- =============================================================================
+select 1;
