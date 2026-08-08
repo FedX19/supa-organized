@@ -6,6 +6,7 @@ import {
   listAttributionEvents,
   parseTrackBody,
 } from '@/lib/attribution/events'
+import { syncEventsFromUnite } from '@/lib/attribution/sync-from-unite'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
