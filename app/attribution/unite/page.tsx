@@ -50,7 +50,8 @@ export default function AttributionUnitePage() {
       </div>
       <div className="grid gap-4 xl:grid-cols-5 mb-4">
         <div className="xl:col-span-3 rounded-2xl border border-card-border bg-card p-5">
-          <h3 className="font-semibold text-white mb-3">Hourly app traffic</h3>
+          <h3 className="font-semibold text-white mb-1">Hourly app traffic</h3>
+          <p className="text-xs text-slate-500 mb-3">{a.viewerTimezone ? `Buckets use your timezone (${a.viewerTimezone.replace(/_/g, " ")})` : "Your local timezone"}</p>
           <TrafficAreaChart data={timeline} />
         </div>
         <div className="xl:col-span-2 rounded-2xl border border-card-border bg-card p-5">
