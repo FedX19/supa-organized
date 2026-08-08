@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { buildDualAnalytics } from '@/lib/attribution/analytics'
+import { buildDualAnalytics, isValidTimeZone } from '@/lib/attribution/analytics'
 import {
   AttributionAuthError,
   requireAttributionAccess,
@@ -21,6 +21,9 @@ export async function GET(request: NextRequest) {
     const hours = hoursRaw ? Number(hoursRaw) : 24 * 30
     const limitRaw = request.nextUrl.searchParams.get('limit')
     const limit = limitRaw ? Number(limitRaw) : 500
+    const tzRaw = request.nextUrl.searchParams.get('tz')
+    const timeZone =
+      tzRaw && isValidTimeZone(tzRaw) ? tzRaw : null
 
     // Use admin scoped by workspace (already authorized)
     const admin = createSupabaseAdminClient()
@@ -43,6 +46,7 @@ export async function GET(request: NextRequest) {
     const events = data ?? []
     const analytics = buildDualAnalytics(events, {
       hours: Number.isFinite(hours) ? hours : 24 * 30,
+      timeZone,
     })
 
     return NextResponse.json({
@@ -50,6 +54,7 @@ export async function GET(request: NextRequest) {
       workspaceId,
       eventCount: events.length,
       analytics,
+      timeZone,
       sync,
     })
   } catch (err) {

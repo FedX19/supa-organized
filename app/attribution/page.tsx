@@ -84,7 +84,7 @@ export default function AttributionCommandCenter() {
       </div>
 
       <div className="mt-4 grid gap-4 xl:grid-cols-5">
-        <Panel className="xl:col-span-3" title="Traffic over time" desc="Website vs Unite HQ">
+        <Panel className="xl:col-span-3" title="Traffic over time" desc={a.viewerTimezone ? `Website vs Unite HQ · times in ${a.viewerTimezone.replace(/_/g, " ")}` : "Website vs Unite HQ"}>
           <TrafficAreaChart data={a.timeline} />
         </Panel>
         <Panel className="xl:col-span-2" title="Sources" desc="First-touch mix · X highlighted">
@@ -95,7 +95,7 @@ export default function AttributionCommandCenter() {
       <Panel
         className="mt-4 border-amber-500/20"
         title="Visits by day"
-        desc="Which calendar day people visited — website + Unite stacked"
+        desc={a.viewerTimezone ? `Calendar day in ${a.viewerTimezone.replace(/_/g, " ")} — website + Unite stacked` : "Which calendar day people visited — website + Unite stacked"}
       >
         <VisitsByDayChart data={a.byDay} mode="both" />
         {a.byDay.length > 0 ? (

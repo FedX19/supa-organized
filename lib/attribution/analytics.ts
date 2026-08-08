@@ -68,6 +68,8 @@ export type DualAnalytics = {
   websiteSessions: number
   uniteSessions: number
   fromX: number
+  /** IANA zone used to bucket timeline / byDay (viewer). */
+  viewerTimezone: string | null
   timeline: TimelinePoint[]
   byDay: DayPoint[]
   sources: SourceRow[]
@@ -125,29 +127,121 @@ function sourceLabel(key: string, sample?: AttributionEvent): string {
   return key
 }
 
-function hourBucket(iso: string): { key: string; label: string } {
+/** Resolve calendar parts in a specific IANA timezone (viewer or fallback). */
+function zonedParts(
+  iso: string,
+  timeZone?: string | null
+): {
+  year: string
+  month: string
+  day: string
+  hour: string
+  weekdayLong: string
+  weekdayShort: string
+  monthShort: string
+  dayNum: string
+  hourLabel: string
+} | null {
   const d = new Date(iso)
-  if (Number.isNaN(d.getTime())) return { key: 'unknown', label: '—' }
-  const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}T${String(d.getHours()).padStart(2, '0')}`
-  const label = d.toLocaleString(undefined, {
-    month: 'short',
-    day: 'numeric',
-    hour: 'numeric',
-  })
+  if (Number.isNaN(d.getTime())) return null
+
+  const zone = timeZone && isValidTimeZone(timeZone) ? timeZone : undefined
+  const base: Intl.DateTimeFormatOptions = {
+    timeZone: zone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    hourCycle: 'h23',
+    weekday: 'long',
+  }
+
+  try {
+    const parts = new Intl.DateTimeFormat('en-US', base).formatToParts(d)
+    const get = (type: Intl.DateTimeFormatPartTypes) =>
+      parts.find((p) => p.type === type)?.value ?? ''
+
+    const year = get('year')
+    const month = get('month')
+    const day = get('day')
+    let hour = get('hour')
+    // Some engines emit "24" for midnight with h23; normalize to 00
+    if (hour === '24') hour = '00'
+    hour = hour.padStart(2, '0')
+
+    const weekdayLong = get('weekday') || '—'
+    const weekdayShort =
+      new Intl.DateTimeFormat('en-US', { timeZone: zone, weekday: 'short' }).format(d)
+    const monthShort = new Intl.DateTimeFormat('en-US', {
+      timeZone: zone,
+      month: 'short',
+    }).format(d)
+    const dayNum = String(Number(day) || day)
+    const hourLabel = new Intl.DateTimeFormat('en-US', {
+      timeZone: zone,
+      hour: 'numeric',
+    }).format(d)
+
+    return {
+      year,
+      month,
+      day,
+      hour,
+      weekdayLong,
+      weekdayShort,
+      monthShort,
+      dayNum,
+      hourLabel,
+    }
+  } catch {
+    // Fallback: host local (should be rare)
+    const year = String(d.getFullYear())
+    const month = String(d.getMonth() + 1).padStart(2, '0')
+    const day = String(d.getDate()).padStart(2, '0')
+    const hour = String(d.getHours()).padStart(2, '0')
+    return {
+      year,
+      month,
+      day,
+      hour,
+      weekdayLong: d.toLocaleDateString('en-US', { weekday: 'long' }),
+      weekdayShort: d.toLocaleDateString('en-US', { weekday: 'short' }),
+      monthShort: d.toLocaleDateString('en-US', { month: 'short' }),
+      dayNum: String(d.getDate()),
+      hourLabel: d.toLocaleString('en-US', { hour: 'numeric' }),
+    }
+  }
+}
+
+export function isValidTimeZone(tz: string): boolean {
+  try {
+    Intl.DateTimeFormat(undefined, { timeZone: tz })
+    return true
+  } catch {
+    return false
+  }
+}
+
+function hourBucket(
+  iso: string,
+  timeZone?: string | null
+): { key: string; label: string } {
+  const p = zonedParts(iso, timeZone)
+  if (!p) return { key: 'unknown', label: '—' }
+  const key = `${p.year}-${p.month}-${p.day}T${p.hour}`
+  const label = `${p.monthShort} ${p.dayNum}, ${p.hourLabel}`
   return { key, label }
 }
 
-function dayBucket(iso: string): { key: string; label: string; weekday: string } {
-  const d = new Date(iso)
-  if (Number.isNaN(d.getTime())) return { key: 'unknown', label: '—', weekday: '—' }
-  const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
-  const label = d.toLocaleDateString(undefined, {
-    weekday: 'short',
-    month: 'short',
-    day: 'numeric',
-  })
-  const weekday = d.toLocaleDateString(undefined, { weekday: 'long' })
-  return { key, label, weekday }
+function dayBucket(
+  iso: string,
+  timeZone?: string | null
+): { key: string; label: string; weekday: string } {
+  const p = zonedParts(iso, timeZone)
+  if (!p) return { key: 'unknown', label: '—', weekday: '—' }
+  const key = `${p.year}-${p.month}-${p.day}`
+  const label = `${p.weekdayShort}, ${p.monthShort} ${p.dayNum}`
+  return { key, label, weekday: p.weekdayLong }
 }
 
 function propertyOf(ev: AttributionEvent): 'website' | 'unite' {
@@ -156,9 +250,11 @@ function propertyOf(ev: AttributionEvent): 'website' | 'unite' {
 
 export function buildDualAnalytics(
   raw: AttributionEvent[],
-  opts?: { hours?: number }
+  opts?: { hours?: number; timeZone?: string | null }
 ): DualAnalytics {
   const hours = opts?.hours ?? 24 * 30
+  const timeZone =
+    opts?.timeZone && isValidTimeZone(opts.timeZone) ? opts.timeZone : null
   const cutoff = Date.now() - hours * 3600_000
   const filtered = [...raw].filter((e) => {
     const t = new Date(e.created_at).getTime()
@@ -214,7 +310,7 @@ export function buildDualAnalytics(
     if (type === 'purchase') purchases += 1
     if (isX(ev)) fromX += 1
 
-    const { key: hk, label } = hourBucket(ev.created_at)
+    const { key: hk, label } = hourBucket(ev.created_at, timeZone)
     const tp = timelineMap.get(hk) ?? {
       t: label,
       hour: hk,
@@ -231,7 +327,7 @@ export function buildDualAnalytics(
     if (type === 'cta_to_unite') tp.cta += 1
     timelineMap.set(hk, tp)
 
-    const { key: dk, label: dLabel, weekday } = dayBucket(ev.created_at)
+    const { key: dk, label: dLabel, weekday } = dayBucket(ev.created_at, timeZone)
     const dp =
       dayMap.get(dk) ??
       ({
@@ -421,6 +517,7 @@ export function buildDualAnalytics(
     websiteSessions: websiteSessions.size,
     uniteSessions: uniteSessions.size,
     fromX,
+    viewerTimezone: timeZone,
     timeline,
     byDay,
     sources,

@@ -41,7 +41,7 @@ export default function AttributionWebsitePage() {
       </div>
       <div className="rounded-2xl border border-amber-500/20 bg-card p-5 mb-4">
         <h3 className="font-semibold text-white mb-1">Visits by day</h3>
-        <p className="text-sm text-slate-400 mb-3">Calendar days on the marketing site</p>
+        <p className="text-sm text-slate-400 mb-3">{a.viewerTimezone ? `Calendar days in ${a.viewerTimezone.replace(/_/g, " ")}` : "Calendar days on the marketing site"}</p>
         <VisitsByDayChart
           data={a.byDay.map((d) => ({ ...d, unite: 0, total: d.website }))}
           mode="website"
@@ -49,7 +49,8 @@ export default function AttributionWebsitePage() {
       </div>
       <div className="grid gap-4 xl:grid-cols-5 mb-4">
         <div className="xl:col-span-3 rounded-2xl border border-card-border bg-card p-5">
-          <h3 className="font-semibold text-white mb-3">Hourly traffic</h3>
+          <h3 className="font-semibold text-white mb-1">Hourly traffic</h3>
+          <p className="text-xs text-slate-500 mb-3">{a.viewerTimezone ? `Buckets use your timezone (${a.viewerTimezone.replace(/_/g, " ")})` : "Your local timezone"}</p>
           <TrafficAreaChart data={timeline} />
         </div>
         <div className="xl:col-span-2 rounded-2xl border border-card-border bg-card p-5">

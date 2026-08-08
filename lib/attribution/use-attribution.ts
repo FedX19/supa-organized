@@ -32,7 +32,14 @@ export function useAttributionSummary(pollMs = 5000) {
         setLoading(false)
         return
       }
-      const res = await fetch('/api/attribution/summary?limit=500', {
+      let tz = 'UTC'
+      try {
+        tz = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'
+      } catch {
+        tz = 'UTC'
+      }
+      const qs = new URLSearchParams({ limit: '500', tz })
+      const res = await fetch(`/api/attribution/summary?${qs}`, {
         headers: { Authorization: `Bearer ${token}` },
         cache: 'no-store',
       })
