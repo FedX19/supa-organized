@@ -33,7 +33,7 @@ export default function AttributionCommandCenter() {
             </span>
           </h1>
           <p className="mt-1 max-w-2xl text-sm text-slate-400">
-            Hyros-style dual-property attribution for Modern Day Coach — marketing site + Unite HQ,
+            Hyros-style dual-property attribution for Modern Day Coach — MDC website + UniteHQ,
             stitched by first-touch source.
           </p>
         </div>
@@ -60,7 +60,7 @@ export default function AttributionCommandCenter() {
           stats={[
             { label: 'Page views', value: n(a.websiteViews) },
             { label: 'Sessions', value: n(a.websiteSessions) },
-            { label: '→ Unite clicks', value: n(a.ctaClicks) },
+            { label: '→ UniteHQ clicks', value: n(a.ctaClicks) },
           ]}
         />
         <PropertyHero
@@ -84,7 +84,7 @@ export default function AttributionCommandCenter() {
       </div>
 
       <div className="mt-4 grid gap-4 xl:grid-cols-5">
-        <Panel className="xl:col-span-3" title="Traffic over time" desc={a.viewerTimezone ? `Website vs Unite HQ · times in ${a.viewerTimezone.replace(/_/g, " ")}` : "Website vs Unite HQ"}>
+        <Panel className="xl:col-span-3" title="Traffic over time" desc={a.viewerTimezone ? `MDC vs UniteHQ · times in ${a.viewerTimezone.replace(/_/g, " ")}` : "MDC vs UniteHQ"}>
           <TrafficAreaChart data={a.timeline} />
         </Panel>
         <Panel className="xl:col-span-2" title="Sources" desc="First-touch mix · X highlighted">
@@ -95,7 +95,7 @@ export default function AttributionCommandCenter() {
       <Panel
         className="mt-4 border-amber-500/20"
         title="Visits by day"
-        desc={a.viewerTimezone ? `Calendar day in ${a.viewerTimezone.replace(/_/g, " ")} — website + Unite stacked` : "Which calendar day people visited — website + Unite stacked"}
+        desc={a.viewerTimezone ? `Calendar day in ${a.viewerTimezone.replace(/_/g, " ")} — MDC + UniteHQ stacked` : "Which calendar day people visited — MDC + UniteHQ stacked"}
       >
         <VisitsByDayChart data={a.byDay} mode="both" />
         {a.byDay.length > 0 ? (
@@ -104,8 +104,8 @@ export default function AttributionCommandCenter() {
               <thead className="text-xs text-slate-500">
                 <tr className="border-b border-card-border">
                   <th className="pb-2 font-medium">Day</th>
-                  <th className="pb-2 text-right font-medium">Website</th>
-                  <th className="pb-2 text-right font-medium">Unite</th>
+                  <th className="pb-2 text-right font-medium">MDC</th>
+                  <th className="pb-2 text-right font-medium">UniteHQ</th>
                   <th className="pb-2 text-right font-medium">Sessions</th>
                   <th className="pb-2 text-right font-medium">Total</th>
                 </tr>
@@ -137,7 +137,7 @@ export default function AttributionCommandCenter() {
       <div className="mt-4 grid gap-4 lg:grid-cols-2">
         <Panel
           title="Cross-property funnel"
-          desc="Site → Unite click → app → activate → buy"
+          desc="MDC → UniteHQ click → app → activate → buy"
           action={
             <Link href="/attribution/funnel" className="text-xs font-medium text-teal-300 hover:underline">
               Full funnel
@@ -152,11 +152,11 @@ export default function AttributionCommandCenter() {
       </div>
 
       <div className="mt-4 grid gap-4 xl:grid-cols-5">
-        <Panel className="xl:col-span-3" title="Stitched journeys" desc="Same session across website → Unite">
+        <Panel className="xl:col-span-3" title="Stitched journeys" desc="Same session across MDC → UniteHQ">
           <div className="space-y-3">
             {a.stitched.length === 0 ? (
               <p className="text-sm text-slate-500">
-                Journeys appear as visitors hop from the site into Unite with UTMs.
+                Journeys appear as visitors hop from MDC into UniteHQ with UTMs.
               </p>
             ) : (
               a.stitched.slice(0, 8).map((j) => (

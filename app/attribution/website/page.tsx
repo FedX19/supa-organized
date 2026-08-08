@@ -22,7 +22,7 @@ export default function AttributionWebsitePage() {
 
   return (
     <AttributionShell activeNav="website">
-      <h1 className="text-2xl font-semibold text-white mb-1">Website · modern-day-coach.com</h1>
+      <h1 className="text-2xl font-semibold text-white mb-1">MDC · modern-day-coach.com</h1>
       <p className="text-sm text-slate-400 mb-4">
         Pages, sources, visit day, time, and location for marketing traffic.
       </p>
@@ -36,7 +36,7 @@ export default function AttributionWebsitePage() {
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4 mb-4">
         <KpiCard label="Page views" value={formatNumber(a.websiteViews)} tone="teal" />
         <KpiCard label="Sessions" value={formatNumber(a.websiteSessions)} />
-        <KpiCard label="CTA → Unite" value={formatNumber(a.ctaClicks)} tone="amber" />
+        <KpiCard label="CTA → UniteHQ" value={formatNumber(a.ctaClicks)} tone="amber" />
         <KpiCard label="From X" value={formatNumber(a.fromX)} tone="amber" />
       </div>
       <div className="rounded-2xl border border-amber-500/20 bg-card p-5 mb-4">

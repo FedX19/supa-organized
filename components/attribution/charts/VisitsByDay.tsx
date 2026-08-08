@@ -51,7 +51,7 @@ export function VisitsByDayChart({
           {(mode === 'both' || mode === 'website') && (
             <Bar
               dataKey="website"
-              name="Website"
+              name="MDC"
               stackId={mode === 'both' ? 'day' : undefined}
               fill="#2dd4bf"
               radius={mode === 'both' ? [0, 0, 0, 0] : [6, 6, 0, 0]}
@@ -61,7 +61,7 @@ export function VisitsByDayChart({
           {(mode === 'both' || mode === 'unite') && (
             <Bar
               dataKey="unite"
-              name="Unite HQ"
+              name="UniteHQ"
               stackId={mode === 'both' ? 'day' : undefined}
               fill="#818cf8"
               radius={[6, 6, 0, 0]}

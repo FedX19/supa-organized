@@ -4,7 +4,7 @@ Hyros-style dual-property tracking for **modern-day-coach.com** + **app.unite-hq
 
 | Product | Route | Status |
 | --- | --- | --- |
-| **Unite Ops** | `/dashboard` | Unchanged |
+| **UniteHQ Ops** | `/dashboard` | Unchanged |
 | **MDC Track** | `/attribution/*` | New |
 
 ## You run these migrations
@@ -14,7 +14,7 @@ In the **SupaOrganized** Supabase project (SQL editor or `supabase db push`), ap
 1. [`supabase/migrations/20260808140000_attribution_product.sql`](../supabase/migrations/20260808140000_attribution_product.sql) — tables, indexes, RLS, seed workspace `mdc`
 2. [`supabase/migrations/20260808140100_attribution_add_founder_example.sql`](../supabase/migrations/20260808140100_attribution_add_founder_example.sql) — no-op template; uncomment to grant yourself admin after you have your `auth.users` UUID
 
-Do **not** run these against Unite HQ’s Supabase. Unite keeps its own optional `mdc_tracking_events` bus.
+Do **not** run these against UniteHQ’s Supabase. UniteHQ keeps its own optional `mdc_tracking_events` bus.
 
 ### Tables created
 
@@ -45,7 +45,7 @@ Authenticated product APIs (Bearer session token):
 1. Deploy SupaOrganized with this branch.
 2. Run migration `20260808140000`.
 3. Confirm Setup page health is green and a test `POST` to `/api/public/mdc-track` returns `202`.
-4. **Optional dual-write from Unite** (Unite still stores locally; copies to SupaOrganized):
+4. **Optional dual-write from UniteHQ** (UniteHQ still stores locally; copies to SupaOrganized):
 
    ```bash
    # unitehq Vercel env — only when ready
@@ -60,7 +60,7 @@ Authenticated product APIs (Bearer session token):
    NEXT_PUBLIC_MDC_TRACK_URL=https://YOUR-SUPA-ORGANIZED-HOST/api/public/mdc-track
    ```
 
-If env vars are unset, existing Unite collect + MDC default URL keep working as before.
+If env vars are unset, existing UniteHQ collect + MDC default URL keep working as before.
 
 ## Env (SupaOrganized)
 

@@ -459,9 +459,9 @@ export function buildDualAnalytics(
   const f4 = activateViews || marketplaceViews
   const f5 = purchases
   const stepsRaw = [
-    { id: 'site_view', label: 'Website page views', property: 'website' as const, count: f1 },
-    { id: 'cta', label: 'Clicked through to Unite', property: 'website' as const, count: f2 },
-    { id: 'unite_view', label: 'Unite app page views', property: 'unite' as const, count: f3 },
+    { id: 'site_view', label: 'MDC page views', property: 'website' as const, count: f1 },
+    { id: 'cta', label: 'Clicked through to UniteHQ', property: 'website' as const, count: f2 },
+    { id: 'unite_view', label: 'UniteHQ app page views', property: 'unite' as const, count: f3 },
     { id: 'activate', label: 'Hit activate / membership', property: 'unite' as const, count: f4 },
     { id: 'purchase', label: 'Purchases', property: 'unite' as const, count: f5 },
   ]

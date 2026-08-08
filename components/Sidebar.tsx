@@ -12,7 +12,7 @@ interface SidebarProps {
   connectionName?: string
   isOpen?: boolean
   onClose?: () => void
-  /** Default ops — existing Unite HQ product */
+  /** Default ops — existing UniteHQ product */
   product?: ProductId
 }
 
@@ -57,13 +57,13 @@ const attributionNav = [
     iconPath: 'M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6',
   },
   {
-    name: 'Website',
+    name: 'MDC',
     view: 'website',
     href: '/attribution/website',
     iconPath: 'M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9',
   },
   {
-    name: 'Unite HQ',
+    name: 'UniteHQ',
     view: 'unite',
     href: '/attribution/unite',
     iconPath: 'M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z',
@@ -156,7 +156,7 @@ export function Sidebar({
                   : 'text-slate-400 hover:text-white hover:bg-slate-800'
               }`}
             >
-              Unite Ops
+              UniteHQ Ops
             </Link>
             <Link
               href="/attribution"

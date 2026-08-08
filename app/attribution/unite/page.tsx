@@ -23,7 +23,7 @@ export default function AttributionUnitePage() {
 
   return (
     <AttributionShell activeNav="unite">
-      <h1 className="text-2xl font-semibold text-white mb-1">Unite HQ · app.unite-hq.com</h1>
+      <h1 className="text-2xl font-semibold text-white mb-1">UniteHQ · app.unite-hq.com</h1>
       <p className="text-sm text-slate-400 mb-4">
         Product views, activation paths, purchases, visit day, and source of app traffic.
       </p>
@@ -42,7 +42,7 @@ export default function AttributionUnitePage() {
       </div>
       <div className="rounded-2xl border border-indigo-500/25 bg-card p-5 mb-4">
         <h3 className="font-semibold text-white mb-1">Visits by day</h3>
-        <p className="text-sm text-slate-400 mb-3">Calendar days inside Unite HQ</p>
+        <p className="text-sm text-slate-400 mb-3">Calendar days inside UniteHQ</p>
         <VisitsByDayChart
           data={a.byDay.map((d) => ({ ...d, website: 0, total: d.unite }))}
           mode="unite"
@@ -55,7 +55,7 @@ export default function AttributionUnitePage() {
           <TrafficAreaChart data={timeline} />
         </div>
         <div className="xl:col-span-2 rounded-2xl border border-card-border bg-card p-5">
-          <h3 className="font-semibold text-white mb-3">Sources into Unite</h3>
+          <h3 className="font-semibold text-white mb-3">Sources into UniteHQ</h3>
           <SourceBarsChart data={uniteSources.length ? uniteSources : a.sources} />
         </div>
       </div>
@@ -76,7 +76,7 @@ export default function AttributionUnitePage() {
               ))}
               {a.topPagesUnite.length === 0 ? (
                 <tr>
-                  <td className="py-4 text-slate-500 text-sm">No Unite paths yet</td>
+                  <td className="py-4 text-slate-500 text-sm">No UniteHQ paths yet</td>
                 </tr>
               ) : null}
             </tbody>
@@ -84,14 +84,14 @@ export default function AttributionUnitePage() {
         </div>
       </div>
       <div className="rounded-2xl border border-indigo-500/25 bg-card p-5">
-        <h3 className="font-semibold text-white mb-1">Recent Unite hits</h3>
+        <h3 className="font-semibold text-white mb-1">Recent UniteHQ hits</h3>
         <p className="text-sm text-slate-400 mb-3">Time · location · source · path</p>
         <ul className="space-y-2">
           {uniteEvents.slice(0, 25).map((ev) => (
             <EventRow key={ev.id} event={ev} />
           ))}
           {uniteEvents.length === 0 ? (
-            <li className="text-sm text-slate-500">Waiting for Unite app traffic…</li>
+            <li className="text-sm text-slate-500">Waiting for UniteHQ app traffic…</li>
           ) : null}
         </ul>
       </div>

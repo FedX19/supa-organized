@@ -6,6 +6,7 @@ import { ClientWhen } from './ClientWhen'
 
 export function EventRow({ event, dense }: { event: AttributionEvent; dense?: boolean }) {
   const isUnite = event.property === 'unite'
+  const propertyLabel = isUnite ? 'UniteHQ' : 'MDC'
   const location = formatLocation(event)
 
   return (
@@ -27,6 +28,15 @@ export function EventRow({ event, dense }: { event: AttributionEvent; dense?: bo
             <span className={`font-mono text-xs ${isUnite ? 'text-indigo-300' : 'text-teal-300'}`}>
               {event.path || '/'}
             </span>
+          </span>
+          <span
+            className={`rounded-md px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${
+              isUnite
+                ? 'bg-indigo-500/15 text-indigo-300'
+                : 'bg-teal-500/15 text-teal-300'
+            }`}
+          >
+            {propertyLabel}
           </span>
           <span className="text-xs text-slate-500">
             {event.source_label || event.source || 'direct'}

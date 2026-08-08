@@ -29,8 +29,8 @@ export default function AttributionLivePage() {
 
   const chips: { id: Filter; label: string }[] = [
     { id: 'all', label: 'All' },
-    { id: 'website', label: 'Website' },
-    { id: 'unite', label: 'Unite' },
+    { id: 'website', label: 'MDC' },
+    { id: 'unite', label: 'UniteHQ' },
     { id: 'x', label: 'From X' },
     { id: 'purchase', label: 'Purchases' },
   ]

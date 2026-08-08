@@ -55,13 +55,13 @@ export default function AttributionSetupPage() {
     <AttributionShell activeNav="setup">
       <h1 className="text-2xl font-semibold text-white mb-1">Setup & cutover</h1>
       <p className="text-sm text-slate-400 mb-6 max-w-2xl">
-        MDC Track lives inside SupaOrganized as a second product. Unite Ops is unchanged. You run
+        MDC Track lives inside SupaOrganized as a second product. UniteHQ Ops is unchanged. You run
         the SQL migrations in Supabase; then point beacons at the collect URL below.
       </p>
 
       <Section title="1. Run SQL migrations (you do this)" tone="amber">
         <p className="text-sm text-slate-300 mb-3">
-          In the <strong className="text-white">SupaOrganized</strong> Supabase project (not Unite
+          In the <strong className="text-white">SupaOrganized</strong> Supabase project (not UniteHQ
           HQ), run these files in order from the SQL editor or CLI:
         </p>
         <ol className="list-decimal list-inside space-y-2 text-sm text-slate-300 font-mono">
@@ -81,7 +81,7 @@ export default function AttributionSetupPage() {
       </Section>
 
       <Section title="2. Collect endpoint (source of truth)" tone="teal">
-        <p className="text-sm text-slate-300 mb-2">Public beacon URL (CORS allowlisted for MDC + Unite):</p>
+        <p className="text-sm text-slate-300 mb-2">Public beacon URL (CORS allowlisted for MDC + UniteHQ):</p>
         <code className="block break-all rounded-lg border border-teal-500/30 bg-teal-500/10 px-3 py-3 text-sm text-teal-200">
           {collectUrl}
         </code>
@@ -116,7 +116,7 @@ export default function AttributionSetupPage() {
       <Section title="3. modern-day-coach.com beacon" tone="teal">
         <p className="text-sm text-slate-300 mb-2">
           Site already ships <code className="text-white">AttributionTracker</code>. Point it at
-          SupaOrganized when you are ready (or leave on Unite during dual-write):
+          SupaOrganized when you are ready (or leave on UniteHQ during dual-write):
         </p>
         <pre className="overflow-x-auto rounded-lg border border-card-border bg-background/60 p-3 text-xs text-slate-300">
 {`# Vercel env on modern-day-coach
@@ -128,11 +128,11 @@ NEXT_PUBLIC_MDC_TRACK_URL=${collectUrl}`}
         </p>
       </Section>
 
-      <Section title="4. Unite HQ dual-write (optional, safe default)" tone="indigo">
+      <Section title="4. UniteHQ dual-write (optional, safe default)" tone="indigo">
         <p className="text-sm text-slate-300 mb-2">
-          Unite keeps writing to its own <code className="text-white">mdc_tracking_events</code>.
+          UniteHQ keeps writing to its own <code className="text-white">mdc_tracking_events</code>.
           When you set the env below, it also fire-and-forgets a copy to SupaOrganized. If unset,
-          Unite behaves exactly as today — no break.
+          UniteHQ behaves exactly as today — no break.
         </p>
         <pre className="overflow-x-auto rounded-lg border border-card-border bg-background/60 p-3 text-xs text-slate-300">
 {`# Vercel env on unitehq (optional)
@@ -165,14 +165,14 @@ on conflict do nothing;`}
       <Section title="Product map" tone="default">
         <div className="grid gap-3 sm:grid-cols-2 text-sm">
           <div className="rounded-xl border border-card-border p-3">
-            <p className="font-semibold text-primary">Unite Ops</p>
+            <p className="font-semibold text-primary">UniteHQ Ops</p>
             <p className="text-slate-400 mt-1">/dashboard — Pulse, orgs, revenue, connections</p>
             <p className="text-xs text-slate-500 mt-2">Unchanged by this merge</p>
           </div>
           <div className="rounded-xl border border-teal-500/30 p-3">
             <p className="font-semibold text-teal-300">MDC Track</p>
             <p className="text-slate-400 mt-1">
-              /attribution — command center, website, Unite, funnel, live, setup
+              /attribution — command center, MDC, UniteHQ, funnel, live, setup
             </p>
             <p className="text-xs text-slate-500 mt-2">New product via sidebar switcher</p>
           </div>

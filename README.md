@@ -104,6 +104,6 @@ MIT
 
 ## MDC Track (second product)
 
-Hyros-style dual-property attribution for modern-day-coach.com + Unite HQ lives under `/attribution` (sidebar product switcher). Unite Ops (`/dashboard`) is unchanged.
+Hyros-style dual-property attribution for modern-day-coach.com + UniteHQ lives under `/attribution` (sidebar product switcher). UniteHQ Ops (`/dashboard`) is unchanged.
 
 **SQL migrations (run yourself in SupaOrganized Supabase):** see [`docs/attribution.md`](docs/attribution.md) and `supabase/migrations/20260808140000_attribution_product.sql`.

@@ -31,8 +31,8 @@ export function SourceBarsChart({ data }: { data: SourceRow[] }) {
           <XAxis type="number" allowDecimals={false} tick={{ fill: '#64748b', fontSize: 11 }} axisLine={false} tickLine={false} />
           <YAxis type="category" dataKey="name" width={100} tick={{ fill: '#94a3b8', fontSize: 11 }} axisLine={false} tickLine={false} />
           <Tooltip content={<ChartTooltip />} />
-          <Bar dataKey="website" name="Website" stackId="a" fill="#2dd4bf" />
-          <Bar dataKey="unite" name="Unite" stackId="a" radius={[0, 4, 4, 0]}>
+          <Bar dataKey="website" name="MDC" stackId="a" fill="#2dd4bf" />
+          <Bar dataKey="unite" name="UniteHQ" stackId="a" radius={[0, 4, 4, 0]}>
             {rows.map((r, i) => (
               <Cell key={i} fill={r.isX ? '#fbbf24' : '#818cf8'} />
             ))}

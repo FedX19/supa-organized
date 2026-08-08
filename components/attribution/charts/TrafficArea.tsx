@@ -36,8 +36,8 @@ export function TrafficAreaChart({ data }: { data: TimelinePoint[] }) {
           <XAxis dataKey="t" tick={{ fill: '#64748b', fontSize: 11 }} axisLine={false} tickLine={false} minTickGap={28} />
           <YAxis allowDecimals={false} width={32} tick={{ fill: '#64748b', fontSize: 11 }} axisLine={false} tickLine={false} />
           <Tooltip content={<ChartTooltip />} />
-          <Area type="monotone" dataKey="website" name="Website" stroke="#2dd4bf" fill="url(#fillWebsiteAttr)" strokeWidth={2} />
-          <Area type="monotone" dataKey="unite" name="Unite HQ" stroke="#818cf8" fill="url(#fillUniteAttr)" strokeWidth={2} />
+          <Area type="monotone" dataKey="website" name="MDC" stroke="#2dd4bf" fill="url(#fillWebsiteAttr)" strokeWidth={2} />
+          <Area type="monotone" dataKey="unite" name="UniteHQ" stroke="#818cf8" fill="url(#fillUniteAttr)" strokeWidth={2} />
         </AreaChart>
       </ResponsiveContainer>
     </div>

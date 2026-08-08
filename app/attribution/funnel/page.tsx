@@ -21,7 +21,7 @@ export default function AttributionFunnelPage() {
     <AttributionShell activeNav="funnel">
       <h1 className="text-2xl font-semibold text-white mb-1">Cross-property funnel</h1>
       <p className="text-sm text-slate-400 mb-4">
-        Website → CTA → Unite app → activate / membership → purchase. Sessions stitch by first-touch
+        MDC → CTA → UniteHQ → activate / membership → purchase. Sessions stitch by first-touch
         source (including free X traffic).
       </p>
       <StatusBanner
@@ -32,8 +32,8 @@ export default function AttributionFunnelPage() {
         onRefresh={() => void refresh()}
       />
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4 mb-4">
-        <KpiCard label="Top of funnel" value={formatNumber(a.websiteViews)} hint="Website views" tone="teal" />
-        <KpiCard label="CTA → Unite" value={formatNumber(a.ctaClicks)} tone="amber" />
+        <KpiCard label="Top of funnel" value={formatNumber(a.websiteViews)} hint="MDC views" tone="teal" />
+        <KpiCard label="CTA → UniteHQ" value={formatNumber(a.ctaClicks)} tone="amber" />
         <KpiCard label="Purchases" value={formatNumber(a.purchases)} tone="emerald" />
         <KpiCard
           label="Site → buy rate"
@@ -108,12 +108,12 @@ export default function AttributionFunnelPage() {
       <div className="rounded-2xl border border-card-border bg-card p-5">
         <h3 className="font-semibold text-white mb-1">Stitched journeys</h3>
         <p className="text-sm text-slate-400 mb-4">
-          Same browser session across marketing site → Unite (UTM first-touch preserved)
+          Same browser session across MDC site → UniteHQ (UTM first-touch preserved)
         </p>
         <div className="space-y-3">
           {a.stitched.length === 0 ? (
             <p className="text-sm text-slate-500">
-              Journeys appear once visitors hop from modern-day-coach.com into Unite with the same
+              Journeys appear once visitors hop from modern-day-coach.com into UniteHQ with the same
               session / UTM payload.
             </p>
           ) : (

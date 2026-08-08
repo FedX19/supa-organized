@@ -56,7 +56,7 @@ export function AttributionShell({
       <div className="flex-1 min-w-0 flex flex-col">
         <div className="lg:hidden sticky top-0 z-30 flex items-center gap-3 border-b border-card-border bg-background/90 px-4 py-3 backdrop-blur">
           <MobileMenuButton onClick={() => setMobileOpen(true)} />
-          <span className="font-semibold text-white">MDC Attribution</span>
+          <span className="font-semibold text-white">MDC Track</span>
         </div>
         <main className="flex-1 px-4 py-6 sm:px-6 lg:px-8 max-w-[1400px] w-full mx-auto">
           {children}
