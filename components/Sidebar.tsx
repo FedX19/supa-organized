@@ -1,5 +1,6 @@
 'use client'
 
+import { useState } from 'react'
 import Link from 'next/link'
 import { FullLogo } from '@/components/Logo'
 
@@ -12,21 +13,26 @@ interface SidebarProps {
   connectionName?: string
   isOpen?: boolean
   onClose?: () => void
-  /** Default ops — existing UniteHQ product */
+  /** Default ops — UniteHQ usage product */
   product?: ProductId
 }
 
-const opsNav = [
+/** Primary nav: product usage only */
+const opsPrimaryNav = [
   {
-    name: 'Pulse',
+    name: 'Usage',
     view: 'pulse',
     href: '/dashboard?view=pulse',
     iconPath: 'M13 10V3L4 14h7v7l9-11h-7z',
   },
+] as const
+
+/** Secondary tools kept reachable but off the main product nav */
+const opsAdvancedNav = [
   {
-    name: 'Dashboard',
+    name: 'Support tools',
     view: 'dashboard',
-    href: '/dashboard',
+    href: '/dashboard?view=dashboard',
     iconPath: 'M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6',
   },
   {
@@ -42,7 +48,7 @@ const opsNav = [
     iconPath: 'M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z',
   },
   {
-    name: 'Connections',
+    name: 'Setup',
     view: 'connections',
     href: '/dashboard?view=connections',
     iconPath: 'M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1',
@@ -88,6 +94,37 @@ const attributionNav = [
   },
 ] as const
 
+function NavLink({
+  item,
+  isActive,
+  product,
+  onClick,
+}: {
+  item: { name: string; href: string; iconPath: string }
+  isActive: boolean
+  product: ProductId
+  onClick: () => void
+}) {
+  return (
+    <Link
+      href={item.href}
+      onClick={onClick}
+      className={`flex items-center gap-3 px-4 py-3 rounded-lg transition-colors min-h-[48px] ${
+        isActive
+          ? product === 'attribution'
+            ? 'bg-teal-400/10 text-teal-300'
+            : 'bg-primary/10 text-primary'
+          : 'text-slate-400 hover:bg-slate-800 hover:text-slate-300'
+      }`}
+    >
+      <svg className="w-5 h-5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d={item.iconPath} />
+      </svg>
+      <span className="font-medium">{item.name}</span>
+    </Link>
+  )
+}
+
 export function Sidebar({
   userEmail,
   onLogout,
@@ -97,11 +134,18 @@ export function Sidebar({
   onClose,
   product = 'ops',
 }: SidebarProps) {
-  const navItems = product === 'attribution' ? attributionNav : opsNav
+  const advancedViews = new Set(opsAdvancedNav.map((i) => i.view))
+  const [advancedOpen, setAdvancedOpen] = useState(
+    () => product === 'ops' && Boolean(activeView && advancedViews.has(activeView))
+  )
 
   const handleNavClick = () => {
     if (onClose) onClose()
   }
+
+  const defaultOpsView = 'pulse'
+  const isOpsActive = (view: string) =>
+    activeView === view || (!activeView && view === defaultOpsView)
 
   return (
     <>
@@ -133,7 +177,7 @@ export function Sidebar({
 
         <div className="p-6">
           <Link
-            href={product === 'attribution' ? '/attribution' : '/dashboard'}
+            href={product === 'attribution' ? '/attribution' : '/dashboard?view=pulse'}
             className="flex items-center transition-transform hover:scale-[1.02]"
             onClick={handleNavClick}
           >
@@ -148,7 +192,7 @@ export function Sidebar({
           </p>
           <div className="grid grid-cols-2 gap-1 rounded-lg border border-slate-700 bg-slate-900/50 p-1">
             <Link
-              href="/dashboard"
+              href="/dashboard?view=pulse"
               onClick={handleNavClick}
               className={`rounded-md px-2 py-2 text-center text-xs font-semibold transition-colors min-h-[40px] flex items-center justify-center ${
                 product === 'ops'
@@ -156,7 +200,7 @@ export function Sidebar({
                   : 'text-slate-400 hover:text-white hover:bg-slate-800'
               }`}
             >
-              UniteHQ Ops
+              UniteHQ Usage
             </Link>
             <Link
               href="/attribution"
@@ -193,34 +237,74 @@ export function Sidebar({
           </div>
         )}
 
-        <nav className="flex-1 px-4">
-          <ul className="space-y-1">
-            {navItems.map((item) => {
-              const isActive =
-                activeView === item.view ||
-                (!activeView && item.view === (product === 'ops' ? 'dashboard' : 'command'))
-              return (
-                <li key={item.name}>
-                  <Link
-                    href={item.href}
-                    onClick={handleNavClick}
-                    className={`flex items-center gap-3 px-4 py-3 rounded-lg transition-colors min-h-[48px] ${
-                      isActive
-                        ? product === 'attribution'
-                          ? 'bg-teal-400/10 text-teal-300'
-                          : 'bg-primary/10 text-primary'
-                        : 'text-slate-400 hover:bg-slate-800 hover:text-slate-300'
-                    }`}
-                  >
-                    <svg className="w-5 h-5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d={item.iconPath} />
-                    </svg>
-                    <span className="font-medium">{item.name}</span>
-                  </Link>
-                </li>
-              )
-            })}
-          </ul>
+        <nav className="flex-1 px-4 overflow-y-auto">
+          {product === 'ops' ? (
+            <>
+              <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 mb-2 px-1">
+                Product usage
+              </p>
+              <ul className="space-y-1 mb-4">
+                {opsPrimaryNav.map((item) => (
+                  <li key={item.view}>
+                    <NavLink
+                      item={item}
+                      isActive={isOpsActive(item.view)}
+                      product={product}
+                      onClick={handleNavClick}
+                    />
+                  </li>
+                ))}
+              </ul>
+
+              <button
+                type="button"
+                onClick={() => setAdvancedOpen((o) => !o)}
+                className="w-full flex items-center justify-between px-1 py-2 text-[10px] font-semibold uppercase tracking-wider text-slate-500 hover:text-slate-300 transition-colors"
+                aria-expanded={advancedOpen}
+              >
+                <span>Advanced</span>
+                <svg
+                  className={`w-3.5 h-3.5 transition-transform ${advancedOpen ? 'rotate-180' : ''}`}
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                </svg>
+              </button>
+              {advancedOpen && (
+                <ul className="space-y-1 mt-1">
+                  {opsAdvancedNav.map((item) => (
+                    <li key={item.view}>
+                      <NavLink
+                        item={item}
+                        isActive={isOpsActive(item.view)}
+                        product={product}
+                        onClick={handleNavClick}
+                      />
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </>
+          ) : (
+            <ul className="space-y-1">
+              {attributionNav.map((item) => {
+                const isActive =
+                  activeView === item.view || (!activeView && item.view === 'command')
+                return (
+                  <li key={item.name}>
+                    <NavLink
+                      item={item}
+                      isActive={isActive}
+                      product={product}
+                      onClick={handleNavClick}
+                    />
+                  </li>
+                )
+              })}
+            </ul>
+          )}
         </nav>
 
         <div className="p-4 border-t border-slate-700">

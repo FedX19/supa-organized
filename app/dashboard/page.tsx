@@ -136,8 +136,8 @@ function DashboardContent() {
   // Mobile menu state
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
 
-  // Sidebar view from URL
-  const sidebarView = (searchParams.get('view') as SidebarView) || 'dashboard'
+  // Sidebar view from URL — Usage (pulse) is the default home
+  const sidebarView = (searchParams.get('view') as SidebarView) || 'pulse'
 
   // Tab state for diagnostic panel
   const [activeTab, setActiveTab] = useState<Tab>('organizations')
@@ -908,10 +908,11 @@ function DashboardContent() {
 
   // Get page title based on view
   const getPageTitle = () => {
-    if (sidebarView === 'pulse') return 'Pulse'
+    if (sidebarView === 'pulse') return 'Usage'
     if (sidebarView === 'analytics') return 'Analytics'
-    if (sidebarView === 'connections') return 'Connections'
-    if (sidebarView === 'revenue') return 'Revenue Dashboard'
+    if (sidebarView === 'connections') return 'Setup'
+    if (sidebarView === 'revenue') return 'Revenue'
+    if (sidebarView === 'dashboard') return 'Support tools'
 
     // Dashboard view titles
     if (activeTab === 'organizations') {
@@ -965,13 +966,13 @@ function DashboardContent() {
             <div className="bg-card border border-card-border rounded-xl p-8 text-center">
               <h3 className="text-xl font-bold text-white mb-2">Connect Your Database First</h3>
               <p className="text-slate-400 mb-4">
-                Go to the Connections page to connect your Supabase database.
+                Open Setup to connect your UniteHQ Supabase database.
               </p>
               <a
                 href="/dashboard?view=connections"
                 className="inline-flex items-center gap-2 px-4 py-2 bg-primary hover:bg-primary-hover text-black font-medium rounded-lg transition-colors"
               >
-                Go to Connections
+                Go to Setup
               </a>
             </div>
           ))}

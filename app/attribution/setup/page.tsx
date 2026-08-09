@@ -55,7 +55,7 @@ export default function AttributionSetupPage() {
     <AttributionShell activeNav="setup">
       <h1 className="text-2xl font-semibold text-white mb-1">Setup & cutover</h1>
       <p className="text-sm text-slate-400 mb-6 max-w-2xl">
-        MDC Track lives inside SupaOrganized as a second product. UniteHQ Ops is unchanged. You run
+        MDC Track lives inside SupaOrganized as a second product. UniteHQ Usage is unchanged. You run
         the SQL migrations in Supabase; then point beacons at the collect URL below.
       </p>
 
@@ -165,8 +165,8 @@ on conflict do nothing;`}
       <Section title="Product map" tone="default">
         <div className="grid gap-3 sm:grid-cols-2 text-sm">
           <div className="rounded-xl border border-card-border p-3">
-            <p className="font-semibold text-primary">UniteHQ Ops</p>
-            <p className="text-slate-400 mt-1">/dashboard — Pulse, orgs, revenue, connections</p>
+            <p className="font-semibold text-primary">UniteHQ Usage</p>
+            <p className="text-slate-400 mt-1">/dashboard — Usage home; Advanced for support, analytics, revenue, setup</p>
             <p className="text-xs text-slate-500 mt-2">Unchanged by this merge</p>
           </div>
           <div className="rounded-xl border border-teal-500/30 p-3">

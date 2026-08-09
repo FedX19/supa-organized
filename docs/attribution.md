@@ -4,7 +4,7 @@ Hyros-style dual-property tracking for **modern-day-coach.com** + **app.unite-hq
 
 | Product | Route | Status |
 | --- | --- | --- |
-| **UniteHQ Ops** | `/dashboard` | Unchanged |
+| **UniteHQ Usage** | `/dashboard` (default Usage / pulse) | Product usage home; Advanced for support tools |
 | **MDC Track** | `/attribution/*` | New |
 
 ## You run these migrations

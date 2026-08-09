@@ -203,7 +203,7 @@ export default function PulseDashboard({ connection, getValidAccessToken }: Prop
   }, [load])
 
   if (loading && !data) {
-    return <div className="text-slate-400 py-12 text-center">Loading pulse…</div>
+    return <div className="text-slate-400 py-12 text-center">Loading usage…</div>
   }
 
   if (error) {
