@@ -178,18 +178,22 @@ export async function resolveIdentityGraph(client: SupabaseClient): Promise<Iden
       fetchAll<{ owner_profile_id: string | null }>(client, 'consultant_workspaces', {
         columns: 'id, owner_profile_id',
       }),
+      // UniteHQ: one row per profile. PK is profile_id (there is no `id` column).
+      // Real columns from remote_schema + membership migrations — no league_name
+      // or onboarding_completed_at; onboarding uses first_login_onboarding_seen_at.
       fetchAll<{
         profile_id: string
         status: string | null
         member_type: string | null
         billing_mode: string | null
         source: string | null
-        league_name: string | null
+        organization_id: string | null
         activated_at: string | null
-        onboarding_completed_at: string | null
+        first_login_onboarding_seen_at: string | null
       }>(client, 'profile_memberships', {
         columns:
-          'id, profile_id, status, member_type, billing_mode, source, league_name, activated_at, onboarding_completed_at',
+          'profile_id, status, member_type, billing_mode, source, organization_id, activated_at, first_login_onboarding_seen_at',
+        orderBy: 'profile_id',
       }),
       fetchAuthUsers(client),
     ])
@@ -289,9 +293,12 @@ export async function resolveIdentityGraph(client: SupabaseClient): Promise<Iden
             memberType: membership.member_type,
             billingMode: membership.billing_mode,
             source: membership.source,
-            leagueName: membership.league_name,
+            // No league_name column — resolve org name when membership is tied to a program org
+            leagueName: membership.organization_id
+              ? orgs.get(membership.organization_id)?.name ?? null
+              : null,
             activatedAt: toDate(membership.activated_at),
-            onboardingCompletedAt: toDate(membership.onboarding_completed_at),
+            onboardingCompletedAt: toDate(membership.first_login_onboarding_seen_at),
           }
         : undefined,
     }
