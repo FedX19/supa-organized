@@ -134,7 +134,7 @@ export function Sidebar({
   onClose,
   product = 'ops',
 }: SidebarProps) {
-  const advancedViews = new Set(opsAdvancedNav.map((i) => i.view))
+  const advancedViews = new Set<string>(opsAdvancedNav.map((i) => i.view))
   const [advancedOpen, setAdvancedOpen] = useState(
     () => product === 'ops' && Boolean(activeView && advancedViews.has(activeView))
   )
