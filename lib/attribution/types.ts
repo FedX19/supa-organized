@@ -87,4 +87,5 @@ export type AttributionEventInput = {
   amount?: number
   currency?: string
   org_name?: string
+  page_path?: string
 }
