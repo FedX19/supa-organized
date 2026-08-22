@@ -73,7 +73,6 @@ export async function GET(request: NextRequest) {
     const analytics = buildDualAnalytics(events, {
       hours: Number.isFinite(hours) ? hours : 24 * 30,
       timeZone,
-      includeBots,
     })
 
     return NextResponse.json({
