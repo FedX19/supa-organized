@@ -6,7 +6,7 @@ import { StatusBanner } from '@/components/attribution/StatusBanner'
 import { EventRow } from '@/components/attribution/EventRow'
 import { useAttributionSummary } from '@/lib/attribution/use-attribution'
 import { formatNumber } from '@/lib/attribution/format'
-import { isEmailEvent, isXEvent } from '@/lib/attribution/analytics'
+import { isEmailEvent, isXEvent } from '@/lib/attribution/decorate-sources'
 
 type Filter = 'all' | 'website' | 'unite' | 'x' | 'email' | 'purchase'
 

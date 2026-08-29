@@ -3,7 +3,7 @@
 import type { AttributionEvent } from '@/lib/attribution/types'
 import { formatLocation, formatTimezone } from '@/lib/attribution/format'
 import { ClientWhen } from './ClientWhen'
-import { isEmailEvent, isXEvent } from '@/lib/attribution/analytics'
+import { isEmailEvent, isXEvent } from '@/lib/attribution/decorate-sources'
 
 export function EventRow({ event, dense }: { event: AttributionEvent; dense?: boolean }) {
   const isUnite = event.property === 'unite'
