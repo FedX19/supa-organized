@@ -4,8 +4,17 @@ import type { SourceRow } from '@/lib/attribution/analytics'
 import { formatNumber } from '@/lib/attribution/format'
 import { formatShare } from '@/lib/attribution/analytics'
 
-function toneFor(row: SourceRow): string {
-  if (row.isEmail) return 'border-sky-500/30 bg-sky-500/10 text-sky-200'
+type Row = SourceRow & {
+  channel?: string
+  campaign?: string | null
+  medium?: string | null
+  sessions?: number
+  cta?: number
+  isEmail?: boolean
+}
+
+function toneFor(row: Row): string {
+  if (row.isEmail || row.channel === 'email') return 'border-sky-500/30 bg-sky-500/10 text-sky-200'
   if (row.isX) return 'border-amber-500/30 bg-amber-500/10 text-amber-200'
   if (row.channel === 'google') return 'border-emerald-500/30 bg-emerald-500/10 text-emerald-200'
   if (row.channel === 'direct') return 'border-slate-600 bg-slate-800/60 text-slate-300'
@@ -16,7 +25,7 @@ export function SourcesTable({
   rows,
   compact,
 }: {
-  rows: SourceRow[]
+  rows: Row[]
   compact?: boolean
 }) {
   const list = compact ? rows.slice(0, 8) : rows
@@ -43,7 +52,7 @@ export function SourcesTable({
             <tr key={row.key} className="border-b border-card-border/50">
               <td className="py-2 pr-3">
                 <span className={`inline-flex rounded-full border px-2 py-0.5 text-xs font-medium ${toneFor(row)}`}>
-                  {row.channel === 'x' ? 'X' : row.channel === 'email' ? 'Email' : row.channel}
+                  {row.channel === 'x' || row.isX ? 'X' : row.channel === 'email' || row.isEmail ? 'Email' : row.channel || row.key}
                 </span>
               </td>
               <td className="py-2 pr-3 text-slate-200">
@@ -54,8 +63,8 @@ export function SourcesTable({
               </td>
               <td className="py-2 pr-3 text-right tabular-nums text-teal-300">{formatNumber(row.website)}</td>
               <td className="py-2 pr-3 text-right tabular-nums text-indigo-300">{formatNumber(row.unite)}</td>
-              <td className="py-2 pr-3 text-right tabular-nums text-slate-300">{formatNumber(row.sessions)}</td>
-              <td className="py-2 pr-3 text-right tabular-nums text-slate-300">{formatNumber(row.cta)}</td>
+              <td className="py-2 pr-3 text-right tabular-nums text-slate-300">{formatNumber(row.sessions ?? 0)}</td>
+              <td className="py-2 pr-3 text-right tabular-nums text-slate-300">{formatNumber(row.cta ?? 0)}</td>
               <td className="py-2 pr-3 text-right tabular-nums text-emerald-300">{formatNumber(row.purchases)}</td>
               <td className="py-2 text-right tabular-nums text-white">{formatShare(row.share)}</td>
             </tr>

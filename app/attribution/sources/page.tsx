@@ -7,6 +7,7 @@ import { SourceBarsChart } from '@/components/attribution/charts/SourceBars'
 import { SourcesTable } from '@/components/attribution/SourcesTable'
 import { useAttributionSummary } from '@/lib/attribution/use-attribution'
 import { formatNumber } from '@/lib/attribution/format'
+import { originCount } from '@/lib/attribution/decorate-sources'
 
 export default function AttributionSourcesPage() {
   const { analytics: a, error, eventCount, migrationRequired, lastFetchedAt, refresh } =
@@ -27,10 +28,10 @@ export default function AttributionSourcesPage() {
         onRefresh={() => void refresh()}
       />
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4 mb-4">
-        <KpiCard label="Email" value={formatNumber(a.fromEmail)} hint="utm_source=email or medium=cold" tone="teal" />
+        <KpiCard label="Email" value={formatNumber(originCount(a, 'fromEmail'))} hint="utm_source=email or medium=cold" tone="teal" />
         <KpiCard label="X" value={formatNumber(a.fromX)} hint="Zero-spend social" tone="amber" />
-        <KpiCard label="Google" value={formatNumber(a.fromGoogle)} />
-        <KpiCard label="Direct / unknown" value={formatNumber(a.fromDirect)} hint="No UTM on the landing URL" />
+        <KpiCard label="Google" value={formatNumber(originCount(a, 'fromGoogle'))} />
+        <KpiCard label="Direct / unknown" value={formatNumber(originCount(a, 'fromDirect'))} hint="No UTM on the landing URL" />
       </div>
       <div className="rounded-2xl border border-card-border bg-card p-5 mb-4">
         <h3 className="font-semibold text-white mb-1">Mix</h3>
