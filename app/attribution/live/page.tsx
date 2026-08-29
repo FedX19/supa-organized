@@ -6,8 +6,9 @@ import { StatusBanner } from '@/components/attribution/StatusBanner'
 import { EventRow } from '@/components/attribution/EventRow'
 import { useAttributionSummary } from '@/lib/attribution/use-attribution'
 import { formatNumber } from '@/lib/attribution/format'
+import { isEmailEvent, isXEvent } from '@/lib/attribution/analytics'
 
-type Filter = 'all' | 'website' | 'unite' | 'x' | 'purchase'
+type Filter = 'all' | 'website' | 'unite' | 'x' | 'email' | 'purchase'
 
 export default function AttributionLivePage() {
   const { analytics: a, error, eventCount, migrationRequired, lastFetchedAt, refresh } =
@@ -18,11 +19,12 @@ export default function AttributionLivePage() {
     return a.recent.filter((ev) => {
       if (filter === 'website') return ev.property !== 'unite'
       if (filter === 'unite') return ev.property === 'unite'
-      if (filter === 'purchase') return (ev.event_type || '').toLowerCase() === 'purchase'
-      if (filter === 'x') {
-        const s = `${ev.source || ''} ${ev.source_label || ''} ${ev.referrer || ''}`.toLowerCase()
-        return s.includes('x') || s.includes('twitter') || s.includes('t.co')
+      if (filter === 'purchase') {
+        const t = (ev.event_type || '').toLowerCase()
+        return t === 'purchase' || t === 'purchase_completed'
       }
+      if (filter === 'x') return isXEvent(ev)
+      if (filter === 'email') return isEmailEvent(ev)
       return true
     })
   }, [a.recent, filter])
@@ -31,6 +33,7 @@ export default function AttributionLivePage() {
     { id: 'all', label: 'All' },
     { id: 'website', label: 'MDC' },
     { id: 'unite', label: 'UniteHQ' },
+    { id: 'email', label: 'Email' },
     { id: 'x', label: 'From X' },
     { id: 'purchase', label: 'Purchases' },
   ]
@@ -78,7 +81,8 @@ export default function AttributionLivePage() {
           ))}
           {events.length === 0 ? (
             <li className="py-8 text-center text-sm text-slate-500">
-              No events match this filter yet. Open Setup to wire beacons, or visit the site with UTMs.
+              No events match this filter yet. Open Setup for cold-email UTMs, or visit the site with
+              tagged links.
             </li>
           ) : null}
         </ul>
