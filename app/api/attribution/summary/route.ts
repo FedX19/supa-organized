@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { buildDualAnalytics, isValidTimeZone } from '@/lib/attribution/analytics'
+import { decorateSources } from '@/lib/attribution/decorate-sources'
 import {
   AttributionAuthError,
   requireAttributionAccess,
@@ -70,10 +71,13 @@ export async function GET(request: NextRequest) {
       }))
     }
 
-    const analytics = buildDualAnalytics(events, {
-      hours: Number.isFinite(hours) ? hours : 24 * 30,
-      timeZone,
-    })
+    const analytics = decorateSources(
+      buildDualAnalytics(events, {
+        hours: Number.isFinite(hours) ? hours : 24 * 30,
+        timeZone,
+      }),
+      events
+    )
 
     return NextResponse.json({
       ok: true,

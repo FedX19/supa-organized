@@ -3,11 +3,18 @@
 import type { AttributionEvent } from '@/lib/attribution/types'
 import { formatLocation, formatTimezone } from '@/lib/attribution/format'
 import { ClientWhen } from './ClientWhen'
+import { isEmailEvent, isXEvent } from '@/lib/attribution/decorate-sources'
 
 export function EventRow({ event, dense }: { event: AttributionEvent; dense?: boolean }) {
   const isUnite = event.property === 'unite'
   const propertyLabel = isUnite ? 'UniteHQ' : 'MDC'
   const location = formatLocation(event)
+  const campaign =
+    event.campaign && !['site', 'none', '(none)', 'direct'].includes(event.campaign.toLowerCase())
+      ? event.campaign
+      : null
+  const email = isEmailEvent(event)
+  const x = isXEvent(event)
 
   return (
     <li
@@ -38,9 +45,24 @@ export function EventRow({ event, dense }: { event: AttributionEvent; dense?: bo
           >
             {propertyLabel}
           </span>
+          {email ? (
+            <span className="rounded-md bg-sky-500/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-sky-300">
+              Email
+            </span>
+          ) : null}
+          {x ? (
+            <span className="rounded-md bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-200">
+              X
+            </span>
+          ) : null}
           <span className="text-xs text-slate-500">
             {event.source_label || event.source || 'direct'}
           </span>
+          {campaign ? (
+            <span className="rounded-md border border-card-border px-1.5 py-0.5 text-[10px] text-slate-300">
+              {campaign}
+            </span>
+          ) : null}
         </div>
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-slate-400">
           <ClientWhen
