@@ -92,6 +92,14 @@ async function verifyUser(token: string): Promise<boolean> {
   return !error && !!user
 }
 
+function isVercelCron(request: NextRequest): boolean {
+  const cronSecret = process.env.CRON_SECRET
+  if (!cronSecret) return false
+  const bearer = request.headers.get('authorization')?.replace('Bearer ', '')
+  const header = request.headers.get('x-cron-secret')
+  return bearer === cronSecret || header === cronSecret
+}
+
 type AnyClient = { from: ReturnType<typeof createClient>['from'] }
 
 async function processOrg(
@@ -190,7 +198,6 @@ function buildAlerts(orgs: OrgWeeklyStats[]): Alert[] {
   const alerts: Alert[] = []
 
   for (const org of orgs) {
-    // Ghost org
     if (org.logins.current === 0 && org.logins.prior > 0) {
       alerts.push({
         orgId: org.orgId,
@@ -200,7 +207,6 @@ function buildAlerts(orgs: OrgWeeklyStats[]): Alert[] {
       })
     }
 
-    // Funnel broken
     if (org.funnel.plansGenerated > 0 && org.funnel.parentOpens === 0) {
       alerts.push({
         orgId: org.orgId,
@@ -210,7 +216,6 @@ function buildAlerts(orgs: OrgWeeklyStats[]): Alert[] {
       })
     }
 
-    // Coach-only
     if (org.isCoachOnly) {
       alerts.push({
         orgId: org.orgId,
@@ -220,7 +225,6 @@ function buildAlerts(orgs: OrgWeeklyStats[]): Alert[] {
       })
     }
 
-    // Slow adoption
     if (org.funnel.medianHoursToOpen !== null && org.funnel.medianHoursToOpen > 48) {
       alerts.push({
         orgId: org.orgId,
@@ -230,7 +234,6 @@ function buildAlerts(orgs: OrgWeeklyStats[]): Alert[] {
       })
     }
 
-    // High error rate
     if (org.errors.rate > 5) {
       alerts.push({
         orgId: org.orgId,
@@ -240,7 +243,6 @@ function buildAlerts(orgs: OrgWeeklyStats[]): Alert[] {
       })
     }
 
-    // Login without engagement
     if (org.logins.current > 3 && org.activeUsers.current < org.logins.current * 0.5) {
       const pct = Math.round((org.activeUsers.current / org.logins.current) * 100)
       alerts.push({
@@ -252,7 +254,6 @@ function buildAlerts(orgs: OrgWeeklyStats[]): Alert[] {
     }
   }
 
-  // Sort: critical → warning → info
   const order = { critical: 0, warning: 1, info: 2 }
   alerts.sort((a, b) => order[a.severity] - order[b.severity])
 
@@ -279,8 +280,6 @@ function buildPlatformTotals(orgs: OrgWeeklyStats[]): PlatformTotals {
     totalEvents += org.activityEvents
   }
 
-  // Can't easily get prior funnel totals without per-org prior data, but we stored current only
-  // Use 0 for prior since the org stats don't track prior funnel individually
   const platformOpenRate = plansCurrent > 0
     ? Math.round((opensCurrent / plansCurrent) * 100)
     : null
@@ -309,7 +308,6 @@ async function buildReportData(customerClient: AnyClient): Promise<WeeklyReportD
   const priorStartISO = priorStart.toISOString()
   const priorEndISO = priorEnd.toISOString()
 
-  // Fetch all orgs
   const { data: orgs, error: orgsError } = await customerClient
     .from('organizations')
     .select('id, name, slug, org_type')
@@ -324,7 +322,6 @@ async function buildReportData(customerClient: AnyClient): Promise<WeeklyReportD
 
   console.log('[weekly-report] Processing', orgList.length, 'orgs')
 
-  // Process all orgs in parallel
   const orgStats = await Promise.all(
     orgList.map(org => processOrg(
       customerClient, org,
@@ -348,9 +345,27 @@ async function buildReportData(customerClient: AnyClient): Promise<WeeklyReportD
   }
 }
 
-// GET: Preview JSON (authenticated users)
+async function sendWeekly(customerClient: AnyClient) {
+  const reportData = await buildReportData(customerClient)
+  const html = generateWeeklyReportHTML(reportData)
+  const subject = generateWeeklyReportSubject(reportData)
+  await sendWeeklyReport(html, subject)
+  console.log('[weekly-report] Email sent to', process.env.FOUNDER_EMAIL)
+  return NextResponse.json({
+    success: true,
+    sent: true,
+    orgsProcessed: reportData.orgs.length,
+    alertCount: reportData.alerts.length,
+  })
+}
+
+// GET: Vercel cron sends the Monday email. Logged-in users still get the JSON preview.
 export async function GET(request: NextRequest) {
   try {
+    if (isVercelCron(request)) {
+      return await sendWeekly(await getCustomerClientFromCron())
+    }
+
     const customerClient = await getCustomerClientFromBearer(request)
     const reportData = await buildReportData(customerClient)
     return NextResponse.json(reportData)
@@ -367,40 +382,24 @@ export async function GET(request: NextRequest) {
   }
 }
 
-// POST: Send email (cron or authenticated user)
+// POST: Send email (cron secret or authenticated user)
 export async function POST(request: NextRequest) {
   try {
-    // Auth: cron secret OR valid Bearer token
-    const cronSecret = request.headers.get('x-cron-secret')
     const bearerToken = request.headers.get('authorization')?.replace('Bearer ', '')
-    const isValidCron = cronSecret === process.env.CRON_SECRET
-    const isValidUser = bearerToken ? await verifyUser(bearerToken) : false
+    const isCron = isVercelCron(request)
+    const isValidUser = bearerToken && bearerToken !== process.env.CRON_SECRET
+      ? await verifyUser(bearerToken)
+      : false
 
-    if (!isValidCron && !isValidUser) {
+    if (!isCron && !isValidUser) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    // Get customer client based on auth method
-    let customerClient: AnyClient
-    if (isValidUser && bearerToken) {
-      customerClient = await getCustomerClientFromBearer(request)
-    } else {
-      customerClient = await getCustomerClientFromCron()
-    }
+    const customerClient = isValidUser && bearerToken
+      ? await getCustomerClientFromBearer(request)
+      : await getCustomerClientFromCron()
 
-    const reportData = await buildReportData(customerClient)
-    const html = generateWeeklyReportHTML(reportData)
-    const subject = generateWeeklyReportSubject(reportData)
-
-    await sendWeeklyReport(html, subject)
-
-    console.log('[weekly-report] Email sent to', process.env.FOUNDER_EMAIL)
-
-    return NextResponse.json({
-      success: true,
-      orgsProcessed: reportData.orgs.length,
-      alertCount: reportData.alerts.length,
-    })
+    return await sendWeekly(customerClient)
   } catch (error) {
     console.error('Weekly report POST error:', error)
     const message = error instanceof Error ? error.message : 'Internal server error'
