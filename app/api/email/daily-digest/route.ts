@@ -20,15 +20,15 @@ export const dynamic = 'force-dynamic'
 export const maxDuration = 60
 
 /**
- * Daily digest, intended to be hit by a Vercel cron.
+ * Daily digest. Scheduled mail is off — the Monday weekly report is the only cron email.
  *
  * Auth: this runs unattended, so it cannot use the normal bearer-token path.
  * It authorises with CRON_SECRET and resolves the connection directly with the
  * service-role key. Without CRON_SECRET set, the route refuses to run rather
  * than defaulting open.
  *
- * `?dry=true` renders and returns the HTML without sending — use it to check
- * the numbers against the dashboard before trusting the mail.
+ * Sends only when DAILY_DIGEST_ENABLED=true. `?dry=true` still renders HTML
+ * without sending.
  */
 export async function GET(request: NextRequest) {
   const cronSecret = process.env.CRON_SECRET
@@ -47,6 +47,15 @@ export async function GET(request: NextRequest) {
   }
 
   const dryRun = request.nextUrl.searchParams.get('dry') === 'true'
+
+  // Scheduled daily mail is off. A leftover Vercel cron must not send.
+  if (!dryRun && process.env.DAILY_DIGEST_ENABLED !== 'true') {
+    return NextResponse.json({
+      success: true,
+      sent: false,
+      reason: 'Daily digest is disabled. Weekly report is the only scheduled email.',
+    })
+  }
 
   try {
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
