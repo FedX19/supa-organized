@@ -77,7 +77,9 @@ export function classifySuspicious(opts: {
     'headless', 'phantomjs', 'selenium', 'puppeteer', 'playwright', 'curl/',
     'wget/', 'python-requests', 'go-http-client', 'scrapy', 'okhttp', 'axios/',
     'node-fetch', 'vercel-screenshot', 'lighthouse', 'pagespeed', 'pingdom',
-    'uptimerobot', 'statuscake',
+    'uptimerobot', 'statuscake', 'grok', 'claude', 'anthropic',
+    'chatgpt-user', 'oai-searchbot', 'perplexitybot', 'browserless',
+    'browserbase', 'agent-browser', 'browser-use', 'datadog-synthetics',
   ]
   if (bots.some((p) => ua.includes(p))) return true
   const city = (opts.city || '').toLowerCase()
@@ -199,22 +201,33 @@ export async function insertAttributionEvents(
   if (!workspaceId) return { accepted: 0, deduped: 0, bots: 0, ids: [] }
 
   const admin = createSupabaseAdminClient()
-  const edgeGeo = options?.edgeGeo
-  const ua = options?.userAgent ?? null
+  const headers = options?.headers
+  const forwardSecret = process.env.MDC_TRACK_FORWARD_SECRET
+  const trustedForward = Boolean(forwardSecret && headers?.get('x-mdc-forward-secret') === forwardSecret)
+  const edgeGeo = trustedForward ? {
+    country: headers?.get('x-mdc-visitor-country') || undefined,
+    region: headers?.get('x-mdc-visitor-region') || undefined,
+    city: headers?.get('x-mdc-visitor-city') || undefined,
+  } : options?.edgeGeo
+  const ua = (trustedForward ? headers?.get('x-mdc-visitor-ua') : null) || options?.userAgent || null
+  const origin = headers?.get('origin') || ''
+  const isPreview = origin.endsWith('.vercel.app') || origin.endsWith('.grok-sandbox.com')
+  const agentTagged = trustedForward && headers?.get('x-mdc-actor') === 'agent'
 
   let bots = 0
   const rows = inputs.slice(0, 50).map((input) => {
     const property = normalizeProperty(input.property)
     const eventType = normalizeEventType(input.event_type || input.type)
-    const city = edgeGeo?.city || input.city || null
-    const region = edgeGeo?.region || input.region || null
-    const country = edgeGeo?.country || input.country || null
+    // A server-to-server request's Vercel geolocation is the proxy's city,
+    // not the visitor's. Accept forwarded visitor geo only from signed relays.
+    const isProxy = /undici|node|vercel/i.test(options?.userAgent || '')
+    const city = trustedForward ? edgeGeo?.city || input.city || null : isProxy ? null : edgeGeo?.city || null
+    const region = trustedForward ? edgeGeo?.region || input.region || null : isProxy ? null : edgeGeo?.region || null
+    const country = trustedForward ? edgeGeo?.country || input.country || null : isProxy ? null : edgeGeo?.country || null
     const sessionId = clip(input.session_id, 80)
 
     const isBot =
-      typeof input.is_bot === 'boolean'
-        ? input.is_bot
-        : classifySuspicious({ userAgent: ua, city, region, sessionId })
+      (isPreview || agentTagged || classifySuspicious({ userAgent: ua, city, region, sessionId }))
 
     if (isBot) bots += 1
 
@@ -276,7 +289,7 @@ export async function insertAttributionEvents(
 
   const accepted = data?.length ?? 0
   return {
-    accepted: accepted || rows.length,
+    accepted,
     deduped: Math.max(0, rows.length - accepted),
     bots,
     ids: (data ?? rows).map((r) => ('id' in r ? (r.id as string) : '')).filter(Boolean),

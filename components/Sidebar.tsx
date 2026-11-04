@@ -56,7 +56,9 @@ const opsAdvancedNav = [
 ] as const
 
 const attributionNav = [
-  {
+  
+  { name: 'Ecosystem', view: 'ecosystem', href: '/attribution/ecosystem', iconPath: 'M3 3v18h18M7 15l4-4 3 2 5-7' },
+{
     name: 'Command center',
     view: 'command',
     href: '/attribution',

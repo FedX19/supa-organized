@@ -16,7 +16,7 @@ async function getToken(): Promise<string | null> {
   return data.session?.access_token ?? null
 }
 
-export function useAttributionSummary(pollMs = 5000) {
+export function useAttributionSummary(pollMs = 30000) {
   const [analytics, setAnalytics] = useState<DualAnalytics>(emptyAnalytics())
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)

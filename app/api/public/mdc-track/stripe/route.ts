@@ -1,3 +1,4 @@
+import Stripe from 'stripe'
 import { NextRequest, NextResponse } from 'next/server'
 import { insertAttributionEvents } from '@/lib/attribution/events'
 
@@ -8,11 +9,17 @@ export const dynamic = 'force-dynamic'
 export async function POST(request: NextRequest) {
   try {
     const rawBody = await request.text()
-    let event: { type?: string; data?: { object?: Record<string, unknown> }; id?: string }
+    const signingSecret = (process.env.MDC_TRACK_STRIPE_WEBHOOK_SECRET || process.env.STRIPE_WEBHOOK_SECRET)
+    const signature = request.headers.get('stripe-signature')
+    if (!signingSecret || !signature) {
+      return NextResponse.json({ ok: false, error: 'webhook not configured' }, { status: 503 })
+    }
+    let event: Stripe.Event
     try {
-      event = JSON.parse(rawBody)
+      const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || 'sk_test_placeholder')
+      event = stripe.webhooks.constructEvent(rawBody, signature, signingSecret)
     } catch {
-      return NextResponse.json({ ok: false, error: 'invalid json' }, { status: 400 })
+      return NextResponse.json({ ok: false, error: 'invalid signature' }, { status: 400 })
     }
 
     const type = event?.type || ''
@@ -20,7 +27,10 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ ok: true, ignored: true, type })
     }
 
-    const obj = (event.data?.object || {}) as Record<string, unknown>
+    const obj = (event.data?.object || {}) as unknown as Record<string, unknown>
+    if (type === 'checkout.session.completed' && obj.payment_status !== 'paid') {
+      return NextResponse.json({ ok: true, ignored: true, reason: 'checkout_not_paid' })
+    }
     const meta = (obj.metadata && typeof obj.metadata === 'object'
       ? (obj.metadata as Record<string, string>)
       : {}) as Record<string, string>
@@ -46,7 +56,7 @@ export async function POST(request: NextRequest) {
         {
           id: stableId,
           property: 'unite',
-          event_type: 'purchase_completed',
+          event_type: type === 'invoice.paid' ? 'invoice_paid' : 'purchase_completed',
           path: meta.entry_path || meta.path || '/checkout',
           session_id: sessionId,
           source: meta.utm_source || 'stripe',

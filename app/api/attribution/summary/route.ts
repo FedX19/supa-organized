@@ -29,46 +29,28 @@ export async function GET(request: NextRequest) {
 
     const hoursRaw = request.nextUrl.searchParams.get('hours')
     const hours = hoursRaw ? Number(hoursRaw) : 24 * 30
-    const limitRaw = request.nextUrl.searchParams.get('limit')
-    const limit = limitRaw ? Number(limitRaw) : 500
     const tzRaw = request.nextUrl.searchParams.get('tz')
     const timeZone = tzRaw && isValidTimeZone(tzRaw) ? tzRaw : null
     const includeBots = request.nextUrl.searchParams.get('include_bots') === '1'
-    const take = Math.min(Math.max(limit, 1), 1000)
+    const since = new Date(Date.now() - Math.min(Math.max(Number.isFinite(hours) ? hours : 720, 1), 24 * 90) * 3600_000).toISOString()
 
     const admin = createSupabaseAdminClient()
-    let query = admin
-      .from('attribution_events')
-      .select(SELECT_FULL)
-      .eq('workspace_id', workspaceId)
-      .order('created_at', { ascending: false })
-      .limit(take)
-
-    if (!includeBots) query = query.eq('is_bot', false)
-
-    const full = await query
-    let events: AttributionEvent[] = asEvents(full.data)
-
-    if (full.error) {
-      console.warn('[attribution/summary] full select failed, legacy fallback', full.error.message)
-      const legacy = await admin
-        .from('attribution_events')
-        .select(SELECT_LEGACY)
-        .eq('workspace_id', workspaceId)
-        .order('created_at', { ascending: false })
-        .limit(take)
-      if (legacy.error) {
-        return NextResponse.json(
-          { ok: false, error: legacy.error.message, migrationRequired: true },
-          { status: 503 }
-        )
+    const events: AttributionEvent[] = []
+    for (let offset = 0; offset < 100000; offset += 1000) {
+      let query = admin.from('attribution_events').select(SELECT_FULL)
+        .eq('workspace_id', workspaceId).gte('created_at', since)
+        .order('created_at', { ascending: false }).range(offset, offset + 999)
+      if (!includeBots) query = query.eq('is_bot', false)
+      const page = await query
+      if (page.error && offset === 0) {
+        // Old installations may need the additive hygiene migration. Do not silently show polluted metrics.
+        return NextResponse.json({ ok: false, error: page.error.message, migrationRequired: true }, { status: 503 })
       }
-      events = asEvents(legacy.data).map((row) => ({
-        ...row,
-        term: row.term ?? null,
-        is_bot: row.is_bot ?? false,
-        meta: row.meta ?? {},
-      }))
+      if (page.error) return NextResponse.json({ ok: false, error: page.error.message }, { status: 503 })
+      const rows = asEvents(page.data)
+      events.push(...rows)
+      if (rows.length < 1000) break
+      if (offset === 99000) return NextResponse.json({ ok: false, error: 'Event limit exceeded; use aggregate reporting' }, { status: 503 })
     }
 
     const analytics = decorateSources(

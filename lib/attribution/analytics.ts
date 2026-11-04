@@ -260,15 +260,28 @@ export function buildDualAnalytics(
     const t = new Date(e.created_at).getTime()
     return Number.isFinite(t) && t >= cutoff
   })
-  const pool = (filtered.length > 0 ? filtered : [...raw]).sort(
+  // The legacy MDC proxy fan-out generated two IDs for the same event.
+  // Collapse close-together, identical session actions in reports; preserve raw rows.
+  const chronological = filtered.sort(
     (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
   )
+  const lastSeen = new Map<string, number>()
+  const pool = chronological.filter((ev) => {
+    const kind = (ev.event_type || '').toLowerCase()
+    if (!['page_view', 'form_submit', 'cta_click'].includes(kind) || !ev.session_id) return true
+    const label = String(ev.meta?.label || ev.meta?.form_type || '')
+    const key = [ev.property, kind, ev.path, ev.session_id, label].join('|')
+    const now = new Date(ev.created_at).getTime()
+    const before = lastSeen.get(key)
+    lastSeen.set(key, now)
+    return before === undefined || now - before > 5000
+  })
 
   let websiteViews = 0
   let uniteViews = 0
   let ctaClicks = 0
   let purchases = 0
-  let fromX = 0
+  const fromXSessions = new Set<string>()
   const sessions = new Set<string>()
   const websiteSessions = new Set<string>()
   const uniteSessions = new Set<string>()
@@ -306,9 +319,9 @@ export function buildDualAnalytics(
       if (prop === 'website') websiteViews += 1
       else uniteViews += 1
     }
-    if (type === 'cta_to_unite') ctaClicks += 1
-    if (type === 'purchase') purchases += 1
-    if (isX(ev)) fromX += 1
+    if (type === 'cta_to_unite' || type === 'cta_click') ctaClicks += 1
+    if (type === 'purchase' || type === 'purchase_completed') purchases += 1
+    if (isX(ev)) fromXSessions.add(sid)
 
     const { key: hk, label } = hourBucket(ev.created_at, timeZone)
     const tp = timelineMap.get(hk) ?? {
@@ -323,8 +336,8 @@ export function buildDualAnalytics(
     if (prop === 'website') tp.website += 1
     else tp.unite += 1
     tp.total += 1
-    if (type === 'purchase') tp.purchases += 1
-    if (type === 'cta_to_unite') tp.cta += 1
+    if (type === 'purchase' || type === 'purchase_completed') tp.purchases += 1
+    if (type === 'cta_to_unite' || type === 'cta_click') tp.cta += 1
     timelineMap.set(hk, tp)
 
     const { key: dk, label: dLabel, weekday } = dayBucket(ev.created_at, timeZone)
@@ -344,7 +357,7 @@ export function buildDualAnalytics(
     if (prop === 'website') dp.website += 1
     else dp.unite += 1
     dp.total += 1
-    if (type === 'purchase') dp.purchases += 1
+    if (type === 'purchase' || type === 'purchase_completed') dp.purchases += 1
     dp.sess.add(sid)
     dp.sessions = dp.sess.size
     dayMap.set(dk, dp)
@@ -358,11 +371,12 @@ export function buildDualAnalytics(
     }
     if (prop === 'website') sr.website += 1
     else sr.unite += 1
-    if (type === 'purchase') sr.purchases += 1
+    if (type === 'purchase' || type === 'purchase_completed') sr.purchases += 1
     if (!sr.sample) sr.sample = ev
     sourceMap.set(sk, sr)
 
     const path = ev.path || '/'
+    if (type === 'page_view' || type === 'content_view') {
     const pk = `${prop}::${path}`
     const pr =
       pageMap.get(pk) ??
@@ -377,12 +391,14 @@ export function buildDualAnalytics(
     pr.sess.add(sid)
     pr.sessions = pr.sess.size
     pageMap.set(pk, pr)
+    }
 
     const dev = (ev.device || 'desktop').toLowerCase()
     deviceMap.set(dev, (deviceMap.get(dev) ?? 0) + 1)
 
-    const locParts = [ev.city, ev.region, ev.country].filter(Boolean)
-    const locLabel = locParts.length
+    const legacyProxyGeo = (ev.city || '').toLowerCase() === 'ashburn'
+    const locParts = legacyProxyGeo ? [] : [ev.city, ev.region, ev.country].filter(Boolean)
+    const locLabel = legacyProxyGeo ? 'Unknown (legacy proxy)' : locParts.length
       ? locParts.join(', ')
       : ev.timezone
         ? `${String(ev.timezone).split('/').pop()?.replace(/_/g, ' ')} (tz)`
@@ -411,7 +427,7 @@ export function buildDualAnalytics(
     if (prop === 'unite' && path && !st.unitePaths.includes(path)) {
       st.unitePaths.push(path)
     }
-    if (type === 'purchase') st.purchased = true
+    if (type === 'purchase' || type === 'purchase_completed') st.purchased = true
     st.lastAt = ev.created_at
     if (!st.location || st.location === 'Unknown') st.location = locLabel
     sessionMap.set(sid, st)
@@ -454,9 +470,9 @@ export function buildDualAnalytics(
   ).length
 
   const f1 = websiteViews
-  const f2 = ctaClicks || Math.min(websiteViews, uniteViews)
+  const f2 = ctaClicks
   const f3 = uniteViews
-  const f4 = activateViews || marketplaceViews
+  const f4 = activateViews
   const f5 = purchases
   const stepsRaw = [
     { id: 'site_view', label: 'MDC page views', property: 'website' as const, count: f1 },
@@ -516,7 +532,7 @@ export function buildDualAnalytics(
     uniqueSessions: sessions.size,
     websiteSessions: websiteSessions.size,
     uniteSessions: uniteSessions.size,
-    fromX,
+    fromX: fromXSessions.size,
     viewerTimezone: timeZone,
     timeline,
     byDay,
