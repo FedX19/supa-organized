@@ -9,7 +9,7 @@ export const dynamic = 'force-dynamic'
 export async function POST(request: NextRequest) {
   try {
     const rawBody = await request.text()
-    const signingSecret = process.env.MDC_TRACK_STRIPE_WEBHOOK_SECRET
+    const signingSecret = (process.env.MDC_TRACK_STRIPE_WEBHOOK_SECRET || process.env.STRIPE_WEBHOOK_SECRET)
     const signature = request.headers.get('stripe-signature')
     if (!signingSecret || !signature) {
       return NextResponse.json({ ok: false, error: 'webhook not configured' }, { status: 503 })
