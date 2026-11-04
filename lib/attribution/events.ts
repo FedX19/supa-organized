@@ -209,7 +209,7 @@ export async function insertAttributionEvents(
     region: headers?.get('x-mdc-visitor-region') || undefined,
     city: headers?.get('x-mdc-visitor-city') || undefined,
   } : options?.edgeGeo
-  const ua = trustedForward ? headers?.get('x-mdc-visitor-ua') : options?.userAgent ?? null
+  const ua = (trustedForward ? headers?.get('x-mdc-visitor-ua') : null) || options?.userAgent || null
   const origin = headers?.get('origin') || ''
   const isPreview = origin.endsWith('.vercel.app') || origin.endsWith('.grok-sandbox.com')
   const agentTagged = trustedForward && headers?.get('x-mdc-actor') === 'agent'
@@ -221,9 +221,9 @@ export async function insertAttributionEvents(
     // A server-to-server request's Vercel geolocation is the proxy's city,
     // not the visitor's. Accept forwarded visitor geo only from signed relays.
     const isProxy = /undici|node|vercel/i.test(options?.userAgent || '')
-    const city = trustedForward ? edgeGeo?.city || null : isProxy ? null : edgeGeo?.city || null
-    const region = trustedForward ? edgeGeo?.region || null : isProxy ? null : edgeGeo?.region || null
-    const country = trustedForward ? edgeGeo?.country || null : isProxy ? null : edgeGeo?.country || null
+    const city = trustedForward ? edgeGeo?.city || input.city || null : isProxy ? null : edgeGeo?.city || null
+    const region = trustedForward ? edgeGeo?.region || input.region || null : isProxy ? null : edgeGeo?.region || null
+    const country = trustedForward ? edgeGeo?.country || input.country || null : isProxy ? null : edgeGeo?.country || null
     const sessionId = clip(input.session_id, 80)
 
     const isBot =
