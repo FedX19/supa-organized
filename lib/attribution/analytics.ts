@@ -260,9 +260,22 @@ export function buildDualAnalytics(
     const t = new Date(e.created_at).getTime()
     return Number.isFinite(t) && t >= cutoff
   })
-  const pool = filtered.sort(
+  // The legacy MDC proxy fan-out generated two IDs for the same event.
+  // Collapse close-together, identical session actions in reports; preserve raw rows.
+  const chronological = filtered.sort(
     (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
   )
+  const lastSeen = new Map<string, number>()
+  const pool = chronological.filter((ev) => {
+    const kind = (ev.event_type || '').toLowerCase()
+    if (!['page_view', 'form_submit', 'cta_click'].includes(kind) || !ev.session_id) return true
+    const label = String(ev.meta?.label || ev.meta?.form_type || '')
+    const key = [ev.property, kind, ev.path, ev.session_id, label].join('|')
+    const now = new Date(ev.created_at).getTime()
+    const before = lastSeen.get(key)
+    lastSeen.set(key, now)
+    return before === undefined || now - before > 5000
+  })
 
   let websiteViews = 0
   let uniteViews = 0
