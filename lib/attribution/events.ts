@@ -212,9 +212,7 @@ export async function insertAttributionEvents(
     const sessionId = clip(input.session_id, 80)
 
     const isBot =
-      typeof input.is_bot === 'boolean'
-        ? input.is_bot
-        : classifySuspicious({ userAgent: ua, city, region, sessionId })
+      classifySuspicious({ userAgent: ua, city, region, sessionId })
 
     if (isBot) bots += 1
 
