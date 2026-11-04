@@ -4,7 +4,7 @@ import Link from 'next/link'
 import { createSupabaseClient } from '@/lib/supabase'
 import { AttributionShell } from '@/components/attribution/AttributionShell'
 
-type Game = { completedRecords: number; uniqueAccounts: number; byMode: { mode: string; completedRecords: number }[] }
+type Game = { opens: number; completedRecords: number; uniqueAccounts: number; byMode: { mode: string; completedRecords: number }[] }
 type Report = { days: number; website: { pageViews: number }; unite: { pageViews: number }; arcade: Game; fundy: Game; caveat: string }
 const format = (x: number) => x.toLocaleString('en-US')
 export default function EcosystemPage() {
@@ -53,7 +53,7 @@ export default function EcosystemPage() {
     <div className="grid gap-4 lg:grid-cols-2">
       {report && (['arcade','fundy'] as const).map(k => <section key={k} id={k} className="rounded-2xl bg-card border border-card-border p-5">
         <h2 className="font-semibold text-white text-xl">{k === 'arcade' ? 'MD Arcade' : 'Fundy Ball'}</h2>
-        <p className="text-sm text-slate-400 mt-1">{format(report[k].uniqueAccounts)} distinct playing accounts in this period</p>
+        <div className="mt-3 flex flex-wrap gap-5 text-sm"><p className="text-slate-400"><strong className="text-white">{format(report[k].opens)}</strong> recorded opens</p><p className="text-slate-400"><strong className="text-white">{format(report[k].uniqueAccounts)}</strong> distinct playing accounts</p></div>
         <div className="mt-4 space-y-3">{report[k].byMode.map(mode => <div key={mode.mode} className="flex justify-between gap-4 border-b border-card-border pb-2 text-sm"><span className="text-slate-300">{mode.mode.replaceAll('_',' ')}</span><span className="font-medium text-white">{format(mode.completedRecords)}</span></div>)}</div>
       </section>)}
     </div>
