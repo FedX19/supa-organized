@@ -5,7 +5,7 @@ import { createSupabaseClient } from '@/lib/supabase'
 import { AttributionShell } from '@/components/attribution/AttributionShell'
 
 type Game = { opens: number; completedRecords: number; uniqueAccounts: number; byMode: { mode: string; completedRecords: number }[] }
-type Report = { days: number; website: { pageViews: number }; unite: { pageViews: number }; arcade: Game; fundy: Game; caveat: string }
+type Report = { days: number; website: { pageViews: number }; unite: { pageViews: number; newAccounts: number; activeMdcIndividualMemberships: number }; arcade: Game; fundy: Game; caveat: string }
 const format = (x: number) => x.toLocaleString('en-US')
 export default function EcosystemPage() {
   const [days, setDays] = useState<7 | 30>(30)
@@ -57,6 +57,13 @@ export default function EcosystemPage() {
         <div className="mt-4 space-y-3">{report[k].byMode.map(mode => <div key={mode.mode} className="flex justify-between gap-4 border-b border-card-border pb-2 text-sm"><span className="text-slate-300">{mode.mode.replaceAll('_',' ')}</span><span className="font-medium text-white">{format(mode.completedRecords)}</span></div>)}</div>
       </section>)}
     </div>
+    {report && <section className="rounded-2xl bg-card border border-card-border p-5 mt-4">
+      <h2 className="text-lg font-semibold text-white">UniteHQ member growth</h2>
+      <div className="grid grid-cols-2 gap-4 mt-4">
+        <div><p className="text-sm text-slate-400">New accounts ({days} days)</p><p className="text-3xl font-semibold text-white mt-1">{format(report.unite.newAccounts)}</p></div>
+        <div><p className="text-sm text-slate-400">Active MDC individual memberships (now)</p><p className="text-3xl font-semibold text-white mt-1">{format(report.unite.activeMdcIndividualMemberships)}</p></div>
+      </div>
+    </section>}
     {report && <p className="mt-6 text-xs text-slate-500">{report.caveat} Website and UniteHQ counts are recorded events, not deduplicated humans. Geographic and historical counts require cleanup before use in marketing decisions.</p>}
   </AttributionShell>
 }
