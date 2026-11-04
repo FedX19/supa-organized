@@ -29,7 +29,7 @@ async function gameSummary(client: Awaited<ReturnType<typeof getCustomerClient>>
       if (error) throw new Error('Game data unavailable: ' + s.table)
       for (const row of data ?? []) {
         rounds += 1
-        const id = (row as Record<string, unknown>)[s.actor]
+        const id = (row as unknown as Record<string, unknown>)[s.actor]
         if (typeof id === 'string') people.add(id)
       }
       if ((data?.length ?? 0) < 1000) break
