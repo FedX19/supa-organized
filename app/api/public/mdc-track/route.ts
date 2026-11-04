@@ -2,10 +2,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import {
   geoFromRequest,
   insertAttributionEvents,
-  listAttributionEvents,
   parseTrackBody,
 } from '@/lib/attribution/events'
-import { syncEventsFromUnite } from '@/lib/attribution/sync-from-unite'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -45,26 +43,9 @@ export async function OPTIONS(request: NextRequest) {
   })
 }
 
-export async function GET(request: NextRequest) {
-  const headers = corsHeaders(request.headers.get('origin'))
-  try {
-    await syncEventsFromUnite(100)
-    const limitRaw = request.nextUrl.searchParams.get('limit')
-    const limit = limitRaw ? Number(limitRaw) : 100
-    const includeBots = request.nextUrl.searchParams.get('include_bots') === '1'
-    const events = await listAttributionEvents(Number.isFinite(limit) ? limit : 100, {
-      includeBots,
-    })
-    return NextResponse.json(
-      { ok: true, count: events.length, events },
-      { headers }
-    )
-  } catch (err) {
-    return NextResponse.json(
-      { ok: false, error: err instanceof Error ? err.message : 'error' },
-      { status: 500, headers }
-    )
-  }
+// Event history is available only through authenticated /api/attribution/events.
+export async function GET() {
+  return NextResponse.json({ ok: false, error: 'authentication_required' }, { status: 401, headers: { 'Cache-Control': 'no-store' } })
 }
 
 export async function POST(request: NextRequest) {
@@ -94,6 +75,12 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ ok: false, error: 'no events' }, { status: 400, headers })
     }
 
+    const isVerifiedForward = Boolean(forwardSecret && request.headers.get('x-mdc-forward-secret') === forwardSecret)
+    const unsafe = new Set(['purchase', 'paid', 'stripe_paid', 'purchase_completed', 'activate_membership'])
+    if (!isVerifiedForward && parsed.some((e) => unsafe.has(String(e?.event_type || e?.type).toLowerCase()))) {
+      return NextResponse.json({ ok: false, error: 'trusted_conversion_required' }, { status: 403, headers })
+    }
+
     const edgeGeo = geoFromRequest(request.headers)
     const result = await insertAttributionEvents(parsed as never[], {
       edgeGeo,
@@ -101,6 +88,9 @@ export async function POST(request: NextRequest) {
       headers: request.headers,
     })
 
+    if (result.accepted === 0 && result.ids.length === 0) {
+      return NextResponse.json({ ok: false, error: 'ingest_unavailable' }, { status: 503, headers })
+    }
     return NextResponse.json(
       {
         ok: true,
