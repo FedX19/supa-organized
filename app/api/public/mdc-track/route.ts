@@ -79,10 +79,9 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ ok: false, error: 'no events' }, { status: 400, headers })
     }
 
-    const isVerifiedForward = Boolean(forwardSecret && request.headers.get('x-mdc-forward-secret') === forwardSecret)
     const unsafe = new Set(['purchase', 'paid', 'stripe_paid', 'purchase_completed', 'activate_membership'])
-    if (!isVerifiedForward && parsed.some((e) => unsafe.has(String(e?.event_type || e?.type).toLowerCase()))) {
-      return NextResponse.json({ ok: false, error: 'trusted_conversion_required' }, { status: 403, headers })
+    if (parsed.some((e) => unsafe.has(String(e?.event_type || e?.type).toLowerCase()))) {
+      return NextResponse.json({ ok: false, error: 'signed_stripe_webhook_required' }, { status: 403, headers })
     }
 
     const edgeGeo = geoFromRequest(request.headers)
