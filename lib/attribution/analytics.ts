@@ -281,7 +281,7 @@ export function buildDualAnalytics(
   let uniteViews = 0
   let ctaClicks = 0
   let purchases = 0
-  let fromX = 0
+  const fromXSessions = new Set<string>()
   const sessions = new Set<string>()
   const websiteSessions = new Set<string>()
   const uniteSessions = new Set<string>()
@@ -321,7 +321,7 @@ export function buildDualAnalytics(
     }
     if (type === 'cta_to_unite' || type === 'cta_click') ctaClicks += 1
     if (type === 'purchase' || type === 'purchase_completed') purchases += 1
-    if (isX(ev)) fromX += 1
+    if (isX(ev)) fromXSessions.add(sid)
 
     const { key: hk, label } = hourBucket(ev.created_at, timeZone)
     const tp = timelineMap.get(hk) ?? {
@@ -376,6 +376,7 @@ export function buildDualAnalytics(
     sourceMap.set(sk, sr)
 
     const path = ev.path || '/'
+    if (type === 'page_view' || type === 'content_view') {
     const pk = `${prop}::${path}`
     const pr =
       pageMap.get(pk) ??
@@ -390,12 +391,14 @@ export function buildDualAnalytics(
     pr.sess.add(sid)
     pr.sessions = pr.sess.size
     pageMap.set(pk, pr)
+    }
 
     const dev = (ev.device || 'desktop').toLowerCase()
     deviceMap.set(dev, (deviceMap.get(dev) ?? 0) + 1)
 
-    const locParts = [ev.city, ev.region, ev.country].filter(Boolean)
-    const locLabel = locParts.length
+    const legacyProxyGeo = (ev.city || '').toLowerCase() === 'ashburn'
+    const locParts = legacyProxyGeo ? [] : [ev.city, ev.region, ev.country].filter(Boolean)
+    const locLabel = legacyProxyGeo ? 'Unknown (legacy proxy)' : locParts.length
       ? locParts.join(', ')
       : ev.timezone
         ? `${String(ev.timezone).split('/').pop()?.replace(/_/g, ' ')} (tz)`
@@ -529,7 +532,7 @@ export function buildDualAnalytics(
     uniqueSessions: sessions.size,
     websiteSessions: websiteSessions.size,
     uniteSessions: uniteSessions.size,
-    fromX,
+    fromX: fromXSessions.size,
     viewerTimezone: timeZone,
     timeline,
     byDay,
