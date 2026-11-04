@@ -289,7 +289,7 @@ export async function insertAttributionEvents(
 
   const accepted = data?.length ?? 0
   return {
-    accepted: accepted || rows.length,
+    accepted,
     deduped: Math.max(0, rows.length - accepted),
     bots,
     ids: (data ?? rows).map((r) => ('id' in r ? (r.id as string) : '')).filter(Boolean),
