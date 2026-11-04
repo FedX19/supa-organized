@@ -28,6 +28,9 @@ export async function POST(request: NextRequest) {
     }
 
     const obj = (event.data?.object || {}) as unknown as Record<string, unknown>
+    if (type === 'checkout.session.completed' && obj.payment_status !== 'paid') {
+      return NextResponse.json({ ok: true, ignored: true, reason: 'checkout_not_paid' })
+    }
     const meta = (obj.metadata && typeof obj.metadata === 'object'
       ? (obj.metadata as Record<string, string>)
       : {}) as Record<string, string>
@@ -53,7 +56,7 @@ export async function POST(request: NextRequest) {
         {
           id: stableId,
           property: 'unite',
-          event_type: 'purchase_completed',
+          event_type: type === 'invoice.paid' ? 'invoice_paid' : 'purchase_completed',
           path: meta.entry_path || meta.path || '/checkout',
           session_id: sessionId,
           source: meta.utm_source || 'stripe',
