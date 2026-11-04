@@ -91,7 +91,7 @@ export async function POST(request: NextRequest) {
       headers: request.headers,
     })
 
-    if (result.accepted === 0 && result.ids.length === 0) {
+    if (result.accepted === 0 && result.deduped === 0) {
       return NextResponse.json({ ok: false, error: 'ingest_unavailable' }, { status: 503, headers })
     }
     return NextResponse.json(
