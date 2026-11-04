@@ -36,14 +36,13 @@ export async function GET(request: NextRequest) {
 
     const admin = createSupabaseAdminClient()
     const events: AttributionEvent[] = []
-    let usedLegacy = false
     for (let offset = 0; offset < 100000; offset += 1000) {
-      let query = admin.from('attribution_events').select(usedLegacy ? SELECT_LEGACY : SELECT_FULL)
+      let query = admin.from('attribution_events').select(SELECT_FULL)
         .eq('workspace_id', workspaceId).gte('created_at', since)
         .order('created_at', { ascending: false }).range(offset, offset + 999)
-      if (!includeBots && !usedLegacy) query = query.eq('is_bot', false)
+      if (!includeBots) query = query.eq('is_bot', false)
       const page = await query
-      if (page.error && !usedLegacy && offset === 0) {
+      if (page.error && offset === 0) {
         // Old installations may need the additive hygiene migration. Do not silently show polluted metrics.
         return NextResponse.json({ ok: false, error: page.error.message, migrationRequired: true }, { status: 503 })
       }
