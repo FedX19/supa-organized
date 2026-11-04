@@ -50,17 +50,19 @@ export async function GET(request: NextRequest) {
     const admin = createSupabaseAdminClient()
     // Never permit this API to read another user's linked database.
     const customer = await getCustomerClient(request)
-    const [site, unite, arcade, fundy, arcadeOpens, fundyOpens] = await Promise.all([
+    const [site, unite, arcade, fundy, arcadeOpens, fundyOpens, signups, memberships] = await Promise.all([
       admin.from('attribution_events').select('id', { count: 'exact', head: true }).eq('workspace_id', workspaceId).eq('property', 'website').eq('event_type', 'page_view').eq('is_bot', false).gte('created_at', since),
       admin.from('attribution_events').select('id', { count: 'exact', head: true }).eq('workspace_id', workspaceId).eq('property', 'unite').eq('event_type', 'page_view').eq('is_bot', false).gte('created_at', since),
       gameSummary(customer, gameSpecs.arcade, since),
       gameSummary(customer, gameSpecs.fundy, since),
       admin.from('attribution_events').select('id', { count: 'exact', head: true }).eq('workspace_id', workspaceId).eq('event_type', 'game_opened').eq('is_bot', false).contains('meta', { game: 'arcade' }).gte('created_at', since),
       admin.from('attribution_events').select('id', { count: 'exact', head: true }).eq('workspace_id', workspaceId).eq('event_type', 'game_opened').eq('is_bot', false).contains('meta', { game: 'fundy' }).gte('created_at', since),
+      customer.from('profiles').select('id', { count: 'exact', head: true }).gte('created_at', since),
+      customer.from('profile_memberships').select('profile_id', { count: 'exact', head: true }).eq('plan', 'mdc_individual').in('status', ['active', 'trialing']),
     ])
-    if (site.error || unite.error || arcadeOpens.error || fundyOpens.error) throw new Error('Traffic analytics unavailable')
+    if (site.error || unite.error || arcadeOpens.error || fundyOpens.error || signups.error || memberships.error) throw new Error('Traffic analytics unavailable')
     return NextResponse.json({ ok: true, days, website: { pageViews: site.count ?? 0 },
-      unite: { pageViews: unite.count ?? 0 }, arcade: { ...arcade, opens: arcadeOpens.count ?? 0 }, fundy: { ...fundy, opens: fundyOpens.count ?? 0 },
+      unite: { pageViews: unite.count ?? 0, newAccounts: signups.count ?? 0, activeMdcIndividualMemberships: memberships.count ?? 0 }, arcade: { ...arcade, opens: arcadeOpens.count ?? 0 }, fundy: { ...fundy, opens: fundyOpens.count ?? 0 },
       caveat: 'Game data comes from saved UniteHQ records. Internal accounts remain included until internal account exclusions are configured.' })
   } catch (error) {
     const status = error instanceof AttributionAuthError ? error.status :
