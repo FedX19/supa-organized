@@ -35,7 +35,7 @@ async function gameSummary(client: Awaited<ReturnType<typeof getCustomerClient>>
       if ((data?.length ?? 0) < 1000) break
       if (offset === 99000) throw new Error('Game data exceeds safe report limit')
     }
-    return { table: s.table, completedRecords: rounds, actors: [...people] }
+    return { table: s.table, completedRecords: rounds, actors: Array.from(people) }
   }))
   return { completedRecords: result.reduce((n, x) => n + x.completedRecords, 0),
     uniqueAccounts: new Set(result.flatMap(x => x.actors)).size,
