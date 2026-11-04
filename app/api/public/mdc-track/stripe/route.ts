@@ -27,7 +27,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ ok: true, ignored: true, type })
     }
 
-    const obj = (event.data?.object || {}) as Record<string, unknown>
+    const obj = (event.data?.object || {}) as unknown as Record<string, unknown>
     const meta = (obj.metadata && typeof obj.metadata === 'object'
       ? (obj.metadata as Record<string, string>)
       : {}) as Record<string, string>
