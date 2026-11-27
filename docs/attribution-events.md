@@ -34,7 +34,9 @@ Single event or `{ "events": [ ... ] }`. Response: `{ ok, accepted, deduped, bot
 ## Hygiene
 
 - `event_id` dedupe via upsert PK
-- `is_bot` from UA + Ashburn/preview heuristics; raw kept
+- `is_bot` and `meta.ua_class` are set at ingest. Classes include browser, crawler, preview, security_scanner, headless, http_client, monitor, agent, no_js, prefetch, and datacenter (security-vendor ASN only). Raw user agent and IP are not stored.
+- Humans-only is the dashboard default. `?include_bots=1` or the sidebar toggle includes bots.
+- `?o=` org code is stored on `meta.org_code`. `mdc_agent=1` or `X-MDC-Actor: agent` marks our own checks.
 - Sources group `source::campaign` for email UTM attribution
 
 ## Stripe

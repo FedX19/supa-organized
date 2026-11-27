@@ -53,14 +53,9 @@ Authenticated product APIs (Bearer session token):
    MDC_TRACK_FORWARD_SECRET=optional-shared-secret
    ```
 
-5. **Optional cutover for marketing site** (MDC):
+5. Marketing site collect is already first-party. Browsers post to `https://www.modern-day-coach.com/api/public/mdc-track`, and that route forwards here. Leave `NEXT_PUBLIC_MDC_TRACK_URL` unset. `MDC_TRACK_FORWARD_SECRET` must match on both projects.
 
-   ```bash
-   # modern-day-coach Vercel env
-   NEXT_PUBLIC_MDC_TRACK_URL=https://YOUR-SUPA-ORGANIZED-HOST/api/public/mdc-track
-   ```
-
-If env vars are unset, existing UniteHQ collect + MDC default URL keep working as before.
+Per-org outreach links (`?o=&c=`), the humans-only default, and the mint script are documented in [`docs/outreach-orgs.md`](outreach-orgs.md).
 
 ## Env (SupaOrganized)
 

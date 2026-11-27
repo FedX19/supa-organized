@@ -63,6 +63,16 @@ export function EventRow({ event, dense }: { event: AttributionEvent; dense?: bo
               {campaign}
             </span>
           ) : null}
+          {typeof event.meta?.org_code === 'string' ? (
+            <span className="rounded-md border border-teal-500/30 px-1.5 py-0.5 font-mono text-[10px] text-teal-200">
+              o={event.meta.org_code}
+            </span>
+          ) : null}
+          {event.is_bot ? (
+            <span className="rounded-md bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-200">
+              Bot{typeof event.meta?.ua_class === 'string' ? ` · ${event.meta.ua_class}` : ''}
+            </span>
+          ) : null}
         </div>
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-slate-400">
           <ClientWhen

@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import Link from 'next/link'
 import { FullLogo } from '@/components/Logo'
+import { BotToggle } from '@/components/attribution/BotToggle'
 
 export type ProductId = 'ops' | 'attribution'
 
@@ -87,6 +88,18 @@ const attributionNav = [
     view: 'live',
     href: '/attribution/live',
     iconPath: 'M13 10V3L4 14h7v7l9-11h-7z',
+  },
+  {
+    name: 'Orgs',
+    view: 'orgs',
+    href: '/attribution/orgs',
+    iconPath: 'M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z',
+  },
+  {
+    name: 'Sources',
+    view: 'sources',
+    href: '/attribution/sources',
+    iconPath: 'M11 3.055A9.001 9.001 0 1020.945 13H11V3.055z',
   },
   {
     name: 'Setup',
@@ -231,10 +244,13 @@ export function Sidebar({
 
         {product === 'attribution' && (
           <div className="px-4 mb-4">
-            <div className="rounded-lg border border-teal-500/30 bg-teal-500/10 px-3 py-2">
-              <p className="text-[11px] text-teal-200/90 leading-snug">
-                modern-day-coach.com · app.unite-hq.com
-              </p>
+            <div className="space-y-2">
+              <div className="rounded-lg border border-teal-500/30 bg-teal-500/10 px-3 py-2">
+                <p className="text-[11px] text-teal-200/90 leading-snug">
+                  modern-day-coach.com · app.unite-hq.com
+                </p>
+              </div>
+              <BotToggle />
             </div>
           </div>
         )}

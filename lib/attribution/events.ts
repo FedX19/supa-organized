@@ -1,4 +1,6 @@
 import { createSupabaseAdminClient } from '@/lib/supabase'
+import { asnFromHeaders, classifyVisit } from './classify'
+import { normalizeCampaignCode, normalizeOrgCode } from './orgs'
 import type {
   AttributionEvent,
   AttributionEventInput,
@@ -60,33 +62,28 @@ function foldMeta(input: AttributionEventInput): AttributionEventMeta {
   if (input.currency) base.currency = String(input.currency).slice(0, 8)
   if (input.org_name) base.org_name = String(input.org_name).slice(0, 120)
   if (input.page_path && !base.page_path) base.page_path = String(input.page_path).slice(0, 200)
+  const orgCode = normalizeOrgCode(input.org_code) || orgFromLanding(input.landing_url)
+  if (orgCode) base.org_code = orgCode
   return base
 }
 
-export function classifySuspicious(opts: {
-  userAgent?: string | null
-  city?: string | null
-  region?: string | null
-  sessionId?: string | null
-}): boolean {
-  const ua = (opts.userAgent || '').toLowerCase()
-  if (!ua) return true
-  const bots = [
-    'bot', 'crawler', 'spider', 'slurp', 'facebookexternalhit', 'twitterbot',
-    'linkedinbot', 'slackbot', 'discordbot', 'whatsapp', 'telegrambot', 'preview',
-    'headless', 'phantomjs', 'selenium', 'puppeteer', 'playwright', 'curl/',
-    'wget/', 'python-requests', 'go-http-client', 'scrapy', 'okhttp', 'axios/',
-    'node-fetch', 'vercel-screenshot', 'lighthouse', 'pagespeed', 'pingdom',
-    'uptimerobot', 'statuscake', 'grok', 'claude', 'anthropic',
-    'chatgpt-user', 'oai-searchbot', 'perplexitybot', 'browserless',
-    'browserbase', 'agent-browser', 'browser-use', 'datadog-synthetics',
-  ]
-  if (bots.some((p) => ua.includes(p))) return true
-  const city = (opts.city || '').toLowerCase()
-  if ((city === 'ashburn' || city === 'boardman' || city === 'the dalles') && !opts.sessionId) {
-    return true
+function orgFromLanding(raw?: string | null): string | null {
+  if (!raw) return null
+  try {
+    const url = new URL(raw)
+    return normalizeOrgCode(url.searchParams.get('o') || url.searchParams.get('org'))
+  } catch {
+    return null
   }
-  return false
+}
+
+function campaignFromLanding(raw?: string | null): string | null {
+  if (!raw) return null
+  try {
+    return normalizeCampaignCode(new URL(raw).searchParams.get('c'))
+  } catch {
+    return null
+  }
 }
 
 export function parseTrackBody(raw: unknown): AttributionEventInput | null {
@@ -136,6 +133,16 @@ export function parseTrackBody(raw: unknown): AttributionEventInput | null {
     currency: typeof o.currency === 'string' ? o.currency : undefined,
     org_name: typeof o.org_name === 'string' ? o.org_name : undefined,
     page_path: typeof o.page_path === 'string' ? o.page_path : undefined,
+    org_code:
+      typeof o.org_code === 'string'
+        ? o.org_code
+        : typeof o.o === 'string'
+          ? o.o
+          : undefined,
+    actor: typeof o.actor === 'string' ? o.actor : undefined,
+    js: typeof o.js === 'boolean' ? o.js : undefined,
+    nav:
+      o.nav === 'document' || o.nav === 'beacon' || o.nav === 'pixel' ? o.nav : undefined,
   }
 }
 
@@ -211,8 +218,18 @@ export async function insertAttributionEvents(
   } : options?.edgeGeo
   const ua = (trustedForward ? headers?.get('x-mdc-visitor-ua') : null) || options?.userAgent || null
   const origin = headers?.get('origin') || ''
-  const isPreview = origin.endsWith('.vercel.app') || origin.endsWith('.grok-sandbox.com')
-  const agentTagged = trustedForward && headers?.get('x-mdc-actor') === 'agent'
+  const forwardedActor = headers?.get('x-mdc-actor')
+  const purpose = trustedForward
+    ? headers?.get('x-mdc-purpose')
+    : headers?.get('purpose') || headers?.get('sec-purpose')
+  const secFetchDest = trustedForward
+    ? headers?.get('x-mdc-sec-fetch-dest')
+    : headers?.get('sec-fetch-dest')
+  const asn = trustedForward
+    ? headers?.get('x-mdc-visitor-asn')
+    : headers
+      ? asnFromHeaders(headers)
+      : null
 
   let bots = 0
   const rows = inputs.slice(0, 50).map((input) => {
@@ -225,9 +242,21 @@ export async function insertAttributionEvents(
     const region = trustedForward ? edgeGeo?.region || input.region || null : isProxy ? null : edgeGeo?.region || null
     const country = trustedForward ? edgeGeo?.country || input.country || null : isProxy ? null : edgeGeo?.country || null
     const sessionId = clip(input.session_id, 80)
-
-    const isBot =
-      (isPreview || agentTagged || classifySuspicious({ userAgent: ua, city, region, sessionId }))
+    const actor =
+      (input.actor || '').toLowerCase() === 'agent' || (forwardedActor || '').toLowerCase() === 'agent'
+        ? 'agent'
+        : null
+    const classified = classifyVisit({
+      userAgent: ua,
+      actor,
+      js: input.js,
+      purpose,
+      secFetchDest,
+      asn,
+      origin,
+      nav: input.nav || 'beacon',
+    })
+    const isBot = classified.isBot
 
     if (isBot) bots += 1
 
@@ -240,7 +269,7 @@ export async function insertAttributionEvents(
       path: clip(input.path, 200),
       source: clip(input.source, 80),
       medium: clip(input.medium, 80),
-      campaign: clip(input.campaign, 120),
+      campaign: clip(input.campaign, 120) || campaignFromLanding(input.landing_url),
       content: clip(input.content, 120),
       term: clip(input.term, 120),
       referrer: clip(input.referrer, 120),
@@ -254,7 +283,14 @@ export async function insertAttributionEvents(
       region: clip(region, 80),
       city: clip(city, 80),
       is_bot: isBot,
-      meta: foldMeta(input),
+      meta: {
+        ...foldMeta(input),
+        ua_class: classified.uaClass,
+        actor: classified.actor,
+        ...(typeof input.js === 'boolean' ? { js: input.js } : {}),
+        ...(input.nav ? { nav: input.nav } : {}),
+        ...(asn ? { asn_seen: true } : {}),
+      },
     }
   })
 

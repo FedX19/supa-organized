@@ -115,16 +115,35 @@ export default function AttributionSetupPage() {
 
       <Section title="3. modern-day-coach.com beacon" tone="teal">
         <p className="text-sm text-slate-300 mb-2">
-          Site already ships <code className="text-white">AttributionTracker</code>. Point it at
-          SupaOrganized when you are ready (or leave on UniteHQ during dual-write):
+          The marketing site already posts to its own <code className="text-white">/api/public/mdc-track</code>,
+          which forwards here. Leave <code className="text-white">NEXT_PUBLIC_MDC_TRACK_URL</code> unset so
+          browsers stay first-party. The old default of{' '}
+          <code className="text-slate-400">https://app.unite-hq.com/api/public/mdc-track</code> is no longer
+          what the site ships. A misspelled Vercel variable{' '}
+          <code className="text-slate-400">NEXT_PUBLIC_MDC_TRACK_UR</code> does nothing and can be deleted.
+        </p>
+        <p className="text-sm text-slate-300">
+          <code className="text-white">MDC_TRACK_FORWARD_SECRET</code> must match on both Vercel projects.
+          That is what lets this app trust the visitor classification instead of the relay&apos;s own request.
+        </p>
+      </Section>
+
+      <Section title="Outreach orgs" tone="teal">
+        <p className="text-sm text-slate-300 mb-2">
+          Per-org links look like{' '}
+          <code className="text-teal-200">https://www.modern-day-coach.com/leagues?o=ll-westfield&amp;c=ll-nov-2026</code>.
+          Humans only is the default. The sidebar toggle includes bots (scanners, no-JS hits, and our own agents).
+          Agents add <code className="text-white">mdc_agent=1</code> or send <code className="text-white">X-MDC-Actor: agent</code>.
         </p>
         <pre className="overflow-x-auto rounded-lg border border-card-border bg-background/60 p-3 text-xs text-slate-300">
-{`# Vercel env on modern-day-coach
-NEXT_PUBLIC_MDC_TRACK_URL=${collectUrl}`}
+{`# from the modern-day-coach repo
+node scripts/mint-org-links.mjs batch.csv --out links.csv
+MDC_TRACK_FORWARD_SECRET=... node scripts/mint-org-links.mjs batch.csv --register`}
         </pre>
         <p className="mt-2 text-xs text-slate-500">
-          Default today is <code className="text-slate-400">https://app.unite-hq.com/api/public/mdc-track</code>.
-          Changing this env is the cutover switch for the marketing site.
+          Register needs migration <code className="text-slate-400">20261127180000_outreach_orgs.sql</code>.
+          Visits with <code className="text-slate-400">?o=</code> still record before that; Orgs shows the code until the name is stored.
+          The org view is <code className="text-slate-400">/attribution/orgs</code>.
         </p>
       </Section>
 

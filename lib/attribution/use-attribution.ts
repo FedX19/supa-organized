@@ -5,6 +5,7 @@ import { createSupabaseClient } from '@/lib/supabase'
 import type { DualAnalytics } from './analytics'
 import { emptyAnalytics } from './analytics'
 import type { AttributionEvent } from './types'
+import { BOTS_EVENT, readShowBots } from '@/components/attribution/BotToggle'
 
 async function getToken(): Promise<string | null> {
   const supabase = createSupabaseClient()
@@ -23,6 +24,14 @@ export function useAttributionSummary(pollMs = 30000) {
   const [eventCount, setEventCount] = useState(0)
   const [migrationRequired, setMigrationRequired] = useState(false)
   const [lastFetchedAt, setLastFetchedAt] = useState<string | null>(null)
+  const [includeBots, setIncludeBots] = useState(false)
+
+  useEffect(() => {
+    const sync = () => setIncludeBots(readShowBots())
+    sync()
+    window.addEventListener(BOTS_EVENT, sync)
+    return () => window.removeEventListener(BOTS_EVENT, sync)
+  }, [])
 
   const refresh = useCallback(async () => {
     try {
@@ -38,7 +47,7 @@ export function useAttributionSummary(pollMs = 30000) {
       } catch {
         tz = 'UTC'
       }
-      const qs = new URLSearchParams({ limit: '500', tz })
+      const qs = new URLSearchParams({ limit: '500', tz, include_bots: includeBots ? '1' : '0' })
       const res = await fetch(`/api/attribution/summary?${qs}`, {
         headers: { Authorization: `Bearer ${token}` },
         cache: 'no-store',
@@ -60,7 +69,7 @@ export function useAttributionSummary(pollMs = 30000) {
       setError(err instanceof Error ? err.message : 'Failed to load')
       setLoading(false)
     }
-  }, [])
+  }, [includeBots])
 
   useEffect(() => {
     void refresh()

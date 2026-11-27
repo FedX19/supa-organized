@@ -18,6 +18,12 @@ export type AttributionEventMeta = {
   href?: string
   page_path?: string
   org_name?: string
+  org_code?: string
+  ua_class?: string
+  actor?: string
+  js?: boolean
+  asn_seen?: boolean
+  nav?: string
   plan?: string
   sku?: string
   amount?: number
@@ -88,4 +94,9 @@ export type AttributionEventInput = {
   currency?: string
   org_name?: string
   page_path?: string
+  /** Outreach code from ?o=. Not an email. */
+  org_code?: string
+  actor?: string
+  js?: boolean
+  nav?: 'document' | 'beacon' | 'pixel'
 }
